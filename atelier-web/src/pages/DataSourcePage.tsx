@@ -1,0 +1,197 @@
+import { useCallback, useEffect, useState } from 'react';
+import {
+  Button,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Select,
+  Space,
+  Switch,
+  Table,
+  Tag,
+  message,
+} from 'antd';
+import { PlusOutlined, ReloadOutlined, ApiOutlined } from '@ant-design/icons';
+import type { ColumnsType } from 'antd/es/table';
+import PageHeader from '../components/PageHeader';
+import { datasourceApi } from '../api/datasource';
+import type { DataSourceRequest, DataSourceResponse } from '../api/types';
+
+const DB_TYPES = ['H2', 'MYSQL', 'ORACLE', 'POSTGRESQL', 'DM', 'KINGBASE', 'DB2', 'STARROCKS'];
+
+export default function DataSourcePage() {
+  const [loading, setLoading] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [data, setData] = useState<DataSourceResponse[]>([]);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<DataSourceResponse | null>(null);
+  const [form] = Form.useForm<DataSourceRequest>();
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setData(await datasourceApi.list());
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const openCreate = () => {
+    setEditing(null);
+    form.resetFields();
+    form.setFieldsValue({ enabled: true, dbType: 'H2' });
+    setModalOpen(true);
+  };
+
+  const openEdit = (record: DataSourceResponse) => {
+    setEditing(record);
+    form.setFieldsValue({ ...record, password: '' });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    const values = await form.validateFields();
+    await datasourceApi.save(values);
+    message.success(editing ? '数据源已更新' : '数据源已创建');
+    setModalOpen(false);
+    load();
+  };
+
+  const handleTest = async () => {
+    const values = await form.validateFields();
+    setTesting(true);
+    try {
+      const result = await datasourceApi.test(values);
+      if (result.success) {
+        message.success(result.message);
+      } else {
+        message.error(result.message);
+      }
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const columns: ColumnsType<DataSourceResponse> = [
+    { title: 'ID', dataIndex: 'id', width: 120 },
+    { title: '名称', dataIndex: 'name', width: 140 },
+    {
+      title: 'JDBC URL',
+      dataIndex: 'jdbcUrl',
+      ellipsis: true,
+    },
+    { title: '用户名', dataIndex: 'username', width: 100 },
+    {
+      title: '数据库类型',
+      dataIndex: 'dbType',
+      width: 110,
+      render: (v: string) => <Tag>{v}</Tag>,
+    },
+    {
+      title: '状态',
+      dataIndex: 'enabled',
+      width: 80,
+      render: (v: boolean) =>
+        v ? <Tag color="success">启用</Tag> : <Tag color="default">禁用</Tag>,
+    },
+    {
+      title: '操作',
+      width: 160,
+      fixed: 'right',
+      render: (_, record) => (
+        <Space>
+          <Button type="link" size="small" onClick={() => openEdit(record)}>
+            编辑
+          </Button>
+          <Popconfirm
+            title="确认删除该数据源？"
+            onConfirm={async () => {
+              await datasourceApi.delete(record.id);
+              message.success('已删除');
+              load();
+            }}
+          >
+            <Button type="link" size="small" danger>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <PageHeader
+        title="数据源管理"
+        description="配置 JDBC 连接，支持连接测试与热加载"
+      />
+      <div className="page-toolbar">
+        <div className="page-toolbar-left" />
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={load}>
+            刷新
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+            新建数据源
+          </Button>
+        </Space>
+      </div>
+      <Table
+        rowKey="id"
+        loading={loading}
+        columns={columns}
+        dataSource={data}
+        scroll={{ x: 900 }}
+        pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
+      />
+      <Modal
+        title={editing ? '编辑数据源' : '新建数据源'}
+        open={modalOpen}
+        onCancel={() => setModalOpen(false)}
+        onOk={handleSave}
+        width={640}
+        footer={[
+          <Button key="test" icon={<ApiOutlined />} loading={testing} onClick={handleTest}>
+            测试连接
+          </Button>,
+          <Button key="cancel" onClick={() => setModalOpen(false)}>
+            取消
+          </Button>,
+          <Button key="ok" type="primary" onClick={handleSave}>
+            保存
+          </Button>,
+        ]}
+      >
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="id" label="ID" rules={[{ required: true, message: '请输入 ID' }]}>
+            <Input disabled={!!editing} placeholder="如 ds-demo" />
+          </Form.Item>
+          <Form.Item name="name" label="名称" rules={[{ required: true }]}>
+            <Input placeholder="数据源显示名称" />
+          </Form.Item>
+          <Form.Item name="jdbcUrl" label="JDBC URL" rules={[{ required: true }]}>
+            <Input placeholder="jdbc:mysql://host:3306/db" />
+          </Form.Item>
+          <Form.Item name="username" label="用户名" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="password" label="密码" extra={editing ? '留空则保持原密码' : undefined}>
+            <Input.Password placeholder={editing ? '留空保持不变' : ''} />
+          </Form.Item>
+          <Form.Item name="dbType" label="数据库类型" rules={[{ required: true }]}>
+            <Select options={DB_TYPES.map((t) => ({ label: t, value: t }))} />
+          </Form.Item>
+          <Form.Item name="enabled" label="启用" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
+  );
+}
