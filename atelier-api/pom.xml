@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.yonyougov.atelier</groupId>
+        <artifactId>new-atelier</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>atelier-api</artifactId>
+    <name>atelier-api</name>
+    <description>REST API 层</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.yonyougov.atelier</groupId>
+            <artifactId>atelier-infra</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.yonyougov.atelier</groupId>
+            <artifactId>atelier-query</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.yonyougov.atelier</groupId>
+            <artifactId>atelier-metadata</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.yonyougov.atelier</groupId>
+            <artifactId>atelier-dimension</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.yonyougov.atelier</groupId>
+            <artifactId>atelier-warning</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+</project>

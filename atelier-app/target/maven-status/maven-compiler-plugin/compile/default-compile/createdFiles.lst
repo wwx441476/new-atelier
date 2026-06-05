@@ -1,0 +1,9 @@
+com/yonyougov/atelier/infra/InMemoryMetricModelRepository.class
+com/yonyougov/atelier/config/DataSourceProperties.class
+com/yonyougov/atelier/config/DataSourceProperties$DatasourceEntry.class
+com/yonyougov/atelier/config/DataSourceRegistryLoader.class
+com/yonyougov/atelier/config/JpaConfiguration.class
+com/yonyougov/atelier/infra/InMemoryMetricDefinitionRepository.class
+com/yonyougov/atelier/config/AtelierConfiguration.class
+com/yonyougov/atelier/config/DemoDataInitializer.class
+com/yonyougov/atelier/NewAtelierApplication.class
