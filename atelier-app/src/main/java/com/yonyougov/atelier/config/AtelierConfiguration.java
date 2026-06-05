@@ -1,8 +1,6 @@
 package com.yonyougov.atelier.config;
 
-import com.yonyougov.atelier.infra.InMemoryMetricModelRepository;
 import com.yonyougov.atelier.infra.datasource.DataSourceRegistry;
-import com.yonyougov.atelier.infra.persistence.JpaMetricDefinitionRepository;
 import com.yonyougov.atelier.infra.query.JdbcQueryExecutor;
 import com.yonyougov.atelier.metrics.compiler.MetricQueryCompiler;
 import com.yonyougov.atelier.metrics.spi.MetricDefinitionRepository;
@@ -20,17 +18,6 @@ public class AtelierConfiguration {
     @Bean(destroyMethod = "close")
     public DataSourceRegistry dataSourceRegistry() {
         return new DataSourceRegistry();
-    }
-
-    /** JPA 指标仓储 — 替代内存实现 */
-    @Bean
-    public MetricDefinitionRepository metricDefinitionRepository(JpaMetricDefinitionRepository repository) {
-        return repository;
-    }
-
-    @Bean
-    public MetricModelRepository metricModelRepository() {
-        return new InMemoryMetricModelRepository();
     }
 
     @Bean

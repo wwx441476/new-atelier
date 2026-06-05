@@ -6,6 +6,7 @@ import com.yonyougov.atelier.infra.persistence.entity.MetricDefinitionEntity;
 import com.yonyougov.atelier.infra.persistence.jpa.MetricDefinitionJpaRepository;
 import com.yonyougov.atelier.infra.persistence.mapper.MetricDefinitionJsonMapper;
 import com.yonyougov.atelier.metrics.spi.MetricDefinitionRepository;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 /**
  * JPA 指标仓储 — 替代 InMemoryMetricDefinitionRepository。
  */
+@Primary
 @Repository
 public class JpaMetricDefinitionRepository implements MetricDefinitionRepository {
 

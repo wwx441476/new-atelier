@@ -3,6 +3,7 @@ package com.yonyougov.atelier.infra;
 import com.yonyougov.atelier.domain.model.MetricModel;
 import com.yonyougov.atelier.domain.model.TableJoin;
 import com.yonyougov.atelier.metrics.spi.MetricModelRepository;
+import org.springframework.stereotype.Repository;
 
 import java.util.Collections;
 import java.util.Map;
@@ -10,8 +11,9 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 内存模型仓储 — 演示用。
+ * 内存模型仓储 — 演示用，待 JPA 实现后替换。
  */
+@Repository
 public class InMemoryMetricModelRepository implements MetricModelRepository {
 
     private final Map<String, MetricModel> store = new ConcurrentHashMap<>();
