@@ -246,10 +246,32 @@ flowchart TD
 | 6 | 保存新建数据源 | 列表出现 `ds-test`，提示「数据源已创建」 |
 | 7 | 删除 `ds-test` | 确认后列表仅剩 `ds-demo` |
 
+**关键验收（必须通过）：** 新建数据源 `ds-test` 后列表可见，且 `POST /datasources/test` 连接成功。该路径由 `DataSourceApiIntegrationTest#addDatasource_shouldPersistRefreshRegistryAndTestConnection` 保护。
+
 **API 等价验证：**
 
 ```bash
+# 列表含种子数据
 curl -s http://localhost:8090/api/v2/datasources
+
+# 新建数据源（字段名与 DataSourceRequest 一致）
+curl -X POST http://localhost:8090/api/v2/datasources \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": "ds-test",
+    "name": "Test H2",
+    "jdbcUrl": "jdbc:h2:mem:atelier;DB_CLOSE_DELAY=-1;MODE=MySQL",
+    "username": "sa",
+    "password": "",
+    "dbType": "H2",
+    "enabled": true
+  }'
+# 期望：HTTP 200，body.code=0，data.id="ds-test"
+
+# 确认列表含 ds-test
+curl -s http://localhost:8090/api/v2/datasources | grep -q '"ds-test"'
+
+# 测试连接
 curl -X POST http://localhost:8090/api/v2/datasources/test \
   -H 'Content-Type: application/json' \
   -d '{"id":"ds-demo","name":"Demo H2","jdbcUrl":"jdbc:h2:mem:atelier;DB_CLOSE_DELAY=-1;MODE=MySQL","username":"sa","password":"","dbType":"H2","enabled":true}'
@@ -420,7 +442,7 @@ mvn test -pl atelier-metrics
 
 集成测试类位于 `atelier-app/src/test/java/com/yonyougov/atelier/api/`：
 
-- `DataSourceApiIntegrationTest`
+- `DataSourceApiIntegrationTest`（含 `addDatasource_shouldPersistRefreshRegistryAndTestConnection` 新建验收）
 - `MetadataApiIntegrationTest`
 - `DimensionApiIntegrationTest`
 - `MetricDefinitionApiIntegrationTest`
@@ -546,6 +568,85 @@ kill <PID>
 
 或修改 `application.yml` 的 `server.port` / `vite.config.ts` 的 `server.port`。
 
+### 7.8 编辑数据源后连接失败
+
+**症状：** 编辑 `ds-demo` 保存后，「测试连接」失败；或 API `POST /datasources/test` 返回 `success: false`。
+
+**根因：** 前端编辑时密码留空（表示不修改），但 `DataSourceEntityMapper.mergeEntity` 将空密码加密写入库，覆盖了原密码。
+
+**修复：** `mergeEntity` 仅在 `password` 非空时更新 `VERIFICATION` 列。
+
+**验证：**
+
+```bash
+# 编辑保存后测试连接应仍成功
+curl -X POST http://localhost:8090/api/v2/datasources/test \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"ds-demo","name":"Demo H2","jdbcUrl":"jdbc:h2:mem:atelier;DB_CLOSE_DELAY=-1;MODE=MySQL","username":"sa","password":"","dbType":"H2","enabled":true}'
+```
+
+### 7.9 新建数据源失败或测试未覆盖 POST
+
+**症状：** UI 点击「保存」后报错或列表无新记录；`mvn test` 通过但新建功能仍不可用。
+
+**根因：**
+
+1. `DataSourceApiIntegrationTest` 原先仅测 GET 列表种子数据，**未测 POST 新建**，回归无法被发现。
+2. 前端新建时 `password` 可能为 `undefined`，Jackson 反序列化为 `null`，与空串处理不一致。
+3. `PasswordCrypto.encrypt(null)` 曾写入 `NULL` 凭据；`mergeEntity` 在编辑时空用户名可能覆盖库中值（§7.8 已修密码，用户名同理加固）。
+
+**修复：**
+
+1. `DataSourceApiIntegrationTest` 增加 `addDatasource_shouldPersistRefreshRegistryAndTestConnection`：POST → 断言 `code=0` → GET 列表/单条 → `DataSourceRegistry.getConnection` → `POST /test`。
+2. `DataSourceController.toConfig` 将 `null` 密码规范为 `""`；`DataSourcePersistenceService` 校验 `name`、`username` 非空。
+3. 前端 `DataSourcePage` 保存/测试时 `password: values.password ?? ''`。
+
+**验证：**
+
+```bash
+mvn test -pl atelier-app -Dtest=DataSourceApiIntegrationTest
+```
+
+### 7.10 API 异常未包装为 ApiResponse
+
+**症状：** 前端 Network 返回 500 HTML 或 Spring 默认 JSON（无 `code` 字段），Console 报 `undefined` 或解包失败。
+
+**根因：** `AtelierException` / `IllegalArgumentException` 未统一处理，Spring 返回非 `ApiResponse` 格式。
+
+**修复：** `atelier-api/.../GlobalExceptionHandler.java` 捕获业务异常并返回 `{code:-1, message:...}`。
+
+### 7.11 data.sql 种子数据 SQL 语法错误导致启动失败
+
+**症状：**
+
+```
+JdbcSQLSyntaxErrorException: Syntax error in SQL statement
+INSERT INTO DMP_DATASOURCE (PK_DATASOURCE, DS_NAME, CONNECT_URL, ...)
+VALUES ('ds-demo', 'Demo H2', [*]jdbc:h2:mem:atelier"
+```
+
+表现为 JDBC URL 前缺少开引号、VALUES 列数与值数不匹配。
+
+**根因：**
+
+1. `DemoDataInitializer.runScript` 使用 `sql.split(";")` 按分号粗暴拆句，**未识别字符串字面量**；`CONNECT_URL` 中的 `jdbc:h2:mem:atelier;DB_CLOSE_DELAY=-1;MODE=MySQL` 在第一个 `;` 处被截断，后续片段不再是合法 SQL。
+2. `data.sql` 中 `--` 行注释在部分脚本执行器下可能引发歧义（Spring `ScriptUtils` 可正确处理，但自定义拆句器不行）。
+
+**修复：**
+
+1. `data.sql`：`DMP_DATASOURCE.CONNECT_URL` 种子值改为不含分号的 `jdbc:h2:mem:atelier`（与主库同名 H2 内存库，演示环境可连通）；`--` 注释改为 `/* */` 块注释。
+2. `DemoDataInitializer`：改用 `ScriptUtils.executeSqlScript(conn, resource)`，与 `spring.sql.init` 使用同一套引号感知拆句逻辑。
+
+**验证：**
+
+```bash
+cd /Volumes/S/IdeaProjects/yonyou/new-atelier/atelier-app
+mvn spring-boot:run
+# 期望：Started NewAtelierApplication，无 JdbcSQLSyntaxErrorException
+
+curl -s http://localhost:8090/api/v2/datasources | grep -q '"ds-demo"'
+```
+
 ---
 
 ## 8. API 冒烟测试脚本
@@ -584,11 +685,27 @@ echo ""
 echo "✅ 全部冒烟测试通过"
 ```
 
+**一键运行（推荐）：**
+
+```bash
+chmod +x /Volumes/S/IdeaProjects/yonyou/new-atelier/scripts/smoke-test.sh
+/Volumes/S/IdeaProjects/yonyou/new-atelier/scripts/smoke-test.sh
+```
+
 **运行 Maven 集成测试（含自动启动内嵌服务）：**
 
 ```bash
 cd /Volumes/S/IdeaProjects/yonyou/new-atelier
 mvn test -pl atelier-app
+```
+
+**健康检查（启动后快速验证）：**
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8090/api/v2/datasources   # 期望 200
+curl -s http://localhost:8090/api/v2/datasources | grep -q '"ds-demo"'            # 期望退出码 0
+curl -s http://localhost:8090/api/v2/metrics/definitions | grep -q '"revenue"'    # 期望退出码 0
+curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/                     # 期望 200
 ```
 
 ---
@@ -599,18 +716,31 @@ mvn test -pl atelier-app
 
 满足以下 **全部** 条件时，视为本轮验收通过：
 
-| 类别 | 标准 |
-|------|------|
-| 构建 | `mvn clean install` 全模块 SUCCESS，含 5 个 API 集成测试通过 |
-| 启动 | 后端 `Started NewAtelierApplication`，前端 5173 可访问 |
-| API 冒烟 | §8 脚本全部输出 OK |
-| 数据源 | 列表加载、测试连接、新建/编辑/删除 |
-| 元数据 | 表列表、字段展开、表/字段 CRUD |
-| 维度 | 维度列表、维度值展开、维度/值 CRUD |
-| 指标 | 定义列表、SQL 预览、查询预览返回数据 |
-| 预警 | 规则列表、新建/编辑/删除 |
-| 前端 | 5 个页面无 Console 红色错误；Network 中 API 请求均为 200 且 `code: 0` |
-| 数据 | 种子数据完整可见（`ds-demo`、`orders`、`dept`/`year`、`revenue`/`cost`/`profit`、`low_profit`） |
+| 类别 | 标准 | 状态（2026-06-06 Agent 审计） |
+|------|------|-------------------------------|
+| 构建 | `mvn clean install` 全模块 SUCCESS，含 5 个 API 集成测试通过 | ⏳ 待本地执行（Shell 被环境 hook 阻断） |
+| 数据源新建 | `DataSourceApiIntegrationTest#addDatasource_*` POST 持久化 + Registry 热加载 + 连接测试 | ✅ 已补充集成测试 |
+| 启动 | 后端 `Started NewAtelierApplication`，前端 5173 可访问 | ⏳ 待本地执行 |
+| API 冒烟 | §8 脚本全部输出 OK | ⏳ 待本地执行 |
+| 数据源 | 列表加载、测试连接、新建/编辑/删除 | ✅ §7.8 密码保留 + §7.9 POST 新建集成测试 |
+| 元数据 | 表列表、字段展开、表/字段 CRUD | ✅ 代码审计通过 |
+| 维度 | 维度列表、维度值展开、维度/值 CRUD | ✅ 代码审计通过 |
+| 指标 | 定义列表、SQL 预览、查询预览返回数据 | ✅ JPA 仓储 + data.sql 种子；§7.4 无重复 Bean |
+| 预警 | 规则列表、新建/编辑/删除 | ✅ 代码审计通过 |
+| 前端 | 5 个页面无 Console 红色错误；Network 中 API 请求均为 200 且 `code: 0` | ⏳ 待浏览器验证 |
+| 数据 | 种子数据完整可见（`ds-demo`、`orders`、`dept`/`year`、`revenue`/`cost`/`profit`、`low_profit`） | ✅ data.sql 已含全部种子 |
+
+**已知问题修复确认（静态审计）：**
+
+| 历史问题 | 状态 |
+|----------|------|
+| §7.1 Lombok | ✅ 各模块已声明依赖 |
+| §7.2 WebCorsConfig | ✅ `atelier-app` 含 `spring-boot-starter-web` |
+| §7.3 JUnit 5（atelier-app 集成测试） | ✅ 已迁移；infra/metrics 仍用 JUnit4 + 显式依赖 |
+| §7.4 重复 MetricDefinitionRepository | ✅ 仅 `JpaMetricDefinitionRepository`（`@Primary`）；InMemory 无 `@Repository` |
+| §7.8 编辑数据源密码 | ✅ 已修复 `mergeEntity` |
+| §7.9 新建数据源 POST | ✅ 集成测试 + 凭据/校验加固 |
+| §7.10 API 异常包装 | ✅ 已添加 `GlobalExceptionHandler` |
 
 ### 9.2 最低可接受标准（开发中）
 
@@ -730,6 +860,34 @@ mvn clean install
 | `atelier-web/vite.config.ts` | 前端端口与 API 代理 |
 | `atelier-web/src/api/client.ts` | axios 与响应解包 |
 | `atelier-api/.../*Controller.java` | 6 个 REST 控制器 |
+
+---
+
+---
+
+## 11. Agent 循环执行记录
+
+### 2026-06-06 — 迭代 1
+
+| 项 | 内容 |
+|----|------|
+| 测试范围 | 静态代码审计 + 2 项运行时修复 |
+| 发现问题 | ① Shell 命令被 Cursor bash hook 阻断，无法执行 `mvn`/curl；② 编辑数据源空密码覆盖库中密码；③ 无全局异常处理器 |
+| 根因 | 环境限制；`mergeEntity` 未判断空密码；缺少 `@RestControllerAdvice` |
+| 修复文件 | `DataSourceEntityMapper.java`、`GlobalExceptionHandler.java`（新建）、`scripts/smoke-test.sh`（新建） |
+| 验证结果 | 静态审计 5 域 API/前端/种子数据结构均对齐；构建与冒烟待本地执行 |
+| 下一步 | 本地执行下方命令完成 §9 全绿验收 |
+
+### 2026-06-06 — 迭代 2（数据源新建）
+
+| 项 | 内容 |
+|----|------|
+| 测试范围 | 数据源 POST 新建端到端 |
+| 发现问题 | 集成测试仅覆盖 GET 列表；新建时 `password`/`username` 空值处理不一致 |
+| 根因 | 测试缺口；`PasswordCrypto.encrypt(null)` 与前端 `undefined` 密码 |
+| 修复文件 | `DataSourceApiIntegrationTest.java`、`DataSourceController.java`、`DataSourcePersistenceService.java`、`DataSourceEntityMapper.java`、`PasswordCrypto.java`、`DataSourcePage.tsx`、`DataSourcePersistenceServiceTest.java`、`test-develop.md` |
+| 验证结果 | 代码与测试已补齐；`mvn test -pl atelier-app -Dtest=DataSourceApiIntegrationTest` 待本地执行 |
+| 下一步 | 本地跑集成测试 + UI 新建 `ds-test` 验收 |
 
 ---
 

@@ -86,6 +86,38 @@ public class DataSourcePersistenceServiceTest {
 
     @Test(expected = AtelierException.class)
     public void shouldRejectMissingJdbcUrl() {
-        service.save(DataSourceConfig.builder().id("bad").name("Bad").build());
+        service.save(DataSourceConfig.builder()
+                .id("bad")
+                .name("Bad")
+                .username("sa")
+                .build());
+    }
+
+    @Test
+    public void shouldSaveWithEmptyPassword() {
+        DataSourceConfig config = DataSourceConfig.builder()
+                .id("ds-empty-pwd")
+                .name("Empty Password H2")
+                .jdbcUrl("jdbc:h2:mem:empty_pwd;DB_CLOSE_DELAY=-1")
+                .username("sa")
+                .password(null)
+                .dbType(DbType.H2)
+                .enabled(true)
+                .build();
+
+        service.save(config);
+
+        DataSourceConfig loaded = service.findConfigById("ds-empty-pwd").orElse(null);
+        Assert.assertNotNull(loaded);
+        Assert.assertEquals("", loaded.getPassword());
+    }
+
+    @Test(expected = AtelierException.class)
+    public void shouldRejectMissingUsername() {
+        service.save(DataSourceConfig.builder()
+                .id("bad-user")
+                .name("Bad")
+                .jdbcUrl("jdbc:h2:mem:bad;DB_CLOSE_DELAY=-1")
+                .build());
     }
 }

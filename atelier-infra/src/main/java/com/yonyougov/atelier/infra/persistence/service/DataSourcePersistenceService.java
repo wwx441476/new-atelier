@@ -68,8 +68,14 @@ public class DataSourcePersistenceService {
         if (config == null || config.getId() == null || config.getId().trim().isEmpty()) {
             throw new AtelierException("数据源 id 不能为空");
         }
+        if (config.getName() == null || config.getName().trim().isEmpty()) {
+            throw new AtelierException("数据源名称不能为空");
+        }
         if (config.getJdbcUrl() == null || config.getJdbcUrl().trim().isEmpty()) {
             throw new AtelierException("数据源 jdbcUrl 不能为空");
+        }
+        if (config.getUsername() == null || config.getUsername().trim().isEmpty()) {
+            throw new AtelierException("数据源用户名不能为空");
         }
     }
 }

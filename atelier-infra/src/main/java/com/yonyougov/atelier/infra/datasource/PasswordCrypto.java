@@ -11,7 +11,7 @@ public final class PasswordCrypto {
     }
 
     public static String encrypt(String plain) {
-        return plain;
+        return plain != null ? plain : "";
     }
 
     public static String decrypt(String cipher) {

@@ -17,6 +17,7 @@ import type { ColumnsType } from 'antd/es/table';
 import PageHeader from '../components/PageHeader';
 import { datasourceApi } from '../api/datasource';
 import type { DataSourceRequest, DataSourceResponse } from '../api/types';
+import { getJdbcTemplate, isJdbcTemplate } from '../constants/jdbcTemplates';
 
 const DB_TYPES = ['H2', 'MYSQL', 'ORACLE', 'POSTGRESQL', 'DM', 'KINGBASE', 'DB2', 'STARROCKS'];
 
@@ -26,7 +27,11 @@ export default function DataSourcePage() {
   const [data, setData] = useState<DataSourceResponse[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<DataSourceResponse | null>(null);
+  const [initialEditDbType, setInitialEditDbType] = useState<string | null>(null);
   const [form] = Form.useForm<DataSourceRequest>();
+
+  const dbType = Form.useWatch('dbType', form);
+  const jdbcUrlPlaceholder = getJdbcTemplate(dbType);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -41,22 +46,47 @@ export default function DataSourcePage() {
     load();
   }, [load]);
 
+  const handleDbTypeChange = (newDbType: string) => {
+    const currentUrl = form.getFieldValue('jdbcUrl') as string | undefined;
+    const previousTemplate = initialEditDbType
+      ? getJdbcTemplate(initialEditDbType)
+      : undefined;
+
+    const shouldUpdate =
+      isJdbcTemplate(currentUrl) ||
+      (editing && previousTemplate !== undefined && currentUrl === previousTemplate);
+
+    if (shouldUpdate) {
+      form.setFieldsValue({ jdbcUrl: getJdbcTemplate(newDbType) });
+    }
+  };
+
   const openCreate = () => {
     setEditing(null);
+    setInitialEditDbType(null);
     form.resetFields();
-    form.setFieldsValue({ enabled: true, dbType: 'H2' });
+    const defaultDbType = 'H2';
+    form.setFieldsValue({
+      enabled: true,
+      dbType: defaultDbType,
+      jdbcUrl: getJdbcTemplate(defaultDbType),
+    });
     setModalOpen(true);
   };
 
   const openEdit = (record: DataSourceResponse) => {
     setEditing(record);
+    setInitialEditDbType(record.dbType);
     form.setFieldsValue({ ...record, password: '' });
     setModalOpen(true);
   };
 
   const handleSave = async () => {
     const values = await form.validateFields();
-    await datasourceApi.save(values);
+    await datasourceApi.save({
+      ...values,
+      password: values.password ?? '',
+    });
     message.success(editing ? '数据源已更新' : '数据源已创建');
     setModalOpen(false);
     load();
@@ -66,7 +96,10 @@ export default function DataSourcePage() {
     const values = await form.validateFields();
     setTesting(true);
     try {
-      const result = await datasourceApi.test(values);
+      const result = await datasourceApi.test({
+        ...values,
+        password: values.password ?? '',
+      });
       if (result.success) {
         message.success(result.message);
       } else {
@@ -176,7 +209,7 @@ export default function DataSourcePage() {
             <Input placeholder="数据源显示名称" />
           </Form.Item>
           <Form.Item name="jdbcUrl" label="JDBC URL" rules={[{ required: true }]}>
-            <Input placeholder="jdbc:mysql://host:3306/db" />
+            <Input placeholder={jdbcUrlPlaceholder} />
           </Form.Item>
           <Form.Item name="username" label="用户名" rules={[{ required: true }]}>
             <Input />
@@ -185,7 +218,15 @@ export default function DataSourcePage() {
             <Input.Password placeholder={editing ? '留空保持不变' : ''} />
           </Form.Item>
           <Form.Item name="dbType" label="数据库类型" rules={[{ required: true }]}>
-            <Select options={DB_TYPES.map((t) => ({ label: t, value: t }))} />
+            <Select
+              placeholder={jdbcUrlPlaceholder}
+              onChange={handleDbTypeChange}
+              options={DB_TYPES.map((t) => ({
+                label: t,
+                value: t,
+                title: getJdbcTemplate(t),
+              }))}
+            />
           </Form.Item>
           <Form.Item name="enabled" label="启用" valuePropName="checked">
             <Switch />

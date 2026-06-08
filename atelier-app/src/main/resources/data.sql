@@ -9,14 +9,14 @@ DELETE FROM DMP_DATASOURCE;
 DELETE FROM orders;
 DELETE FROM dept;
 
--- 1. 数据源
+/* 1. 数据源 — CONNECT_URL 勿含分号，避免脚本按 ; 拆句时截断字符串 */
 INSERT INTO DMP_DATASOURCE (
     PK_DATASOURCE, DS_NAME, CONNECT_URL, DS_USERNAME, VERIFICATION, DB_TYPE, ENABLE, CREATE_TIME, MODIFY_TIME
 ) VALUES (
-    'ds-demo', 'Demo H2', 'jdbc:h2:mem:atelier;DB_CLOSE_DELAY=-1;MODE=MySQL', 'sa', '', 'H2', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+    'ds-demo', 'Demo H2', 'jdbc:h2:mem:atelier', 'sa', '', 'H2', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 );
 
--- 2. 元数据表 orders
+/* 2. 元数据表 orders */
 INSERT INTO ATELIER_META_TABLE (PK_META_TABLE, CATALOG_CODE, TABLE_CODE, TABLE_NAME, PK_DATASOURCE, COMMENTS, CREATE_TIME, MODIFY_TIME)
 VALUES ('mt-orders', 'finance', 'orders', '订单事实表', 'ds-demo', '演示订单表', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
@@ -26,7 +26,7 @@ INSERT INTO ATELIER_META_TABLE_FIELD (PK_META_FIELD, PK_META_TABLE, FIELD_CODE, 
 ('mf-3', 'mt-orders', 'amount', '金额', 'DECIMAL', 3),
 ('mf-4', 'mt-orders', 'cost_amount', '成本', 'DECIMAL', 4);
 
--- 3. 维度
+/* 3. 维度 */
 INSERT INTO ATELIER_DIMENSION (PK_DIMENSION, CATALOG_CODE, DS_CODE, DS_NAME, DS_TYPE, PK_DATASOURCE, PK_META_TABLE, COMMENTS, CREATE_TIME, MODIFY_TIME)
 VALUES ('dim-dept', 'finance', 'dept', '部门', 'LIST', 'ds-demo', 'mt-orders', '部门列表维度', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
@@ -48,7 +48,7 @@ INSERT INTO ATELIER_DIMENSION_VALUE (PK_DIM_VALUE, PK_DIMENSION, CODE, NAME, SOR
 ('dv-3', 'dim-year', '2024', '2024年', 1),
 ('dv-4', 'dim-year', '2025', '2025年', 2);
 
--- 4. 指标定义（声明式 JSON）
+/* 4. 指标定义（声明式 JSON） */
 INSERT INTO ATELIER_METRIC_DEFINITION (PK_METRIC, METRIC_CODE, METRIC_NAME, CATALOG_CODE, METRIC_TYPE, PK_DATASOURCE, DEFINITION_JSON, ENABLED, CREATE_TIME, MODIFY_TIME) VALUES
 ('m-revenue', 'revenue', '营业收入', 'finance', 'TABLE', 'ds-demo',
  '{"code":"revenue","name":"营业收入","catalogCode":"finance","type":"TABLE","datasourceId":"ds-demo","modelCode":"finance_model","tableCode":"orders","fieldCode":"amount","aggregation":"SUM","alias":"revenue","dimensions":[{"dimensionCode":"dept","fieldCode":"dept_code","fieldName":"部门","sort":1},{"dimensionCode":"year","fieldCode":"fiscal_year","fieldName":"年度","sort":2}]}',
@@ -64,11 +64,11 @@ INSERT INTO ATELIER_METRIC_DEFINITION (PK_METRIC, METRIC_CODE, METRIC_NAME, CATA
  '{"code":"profit","name":"利润","catalogCode":"finance","type":"COMPOSITE","datasourceId":"ds-demo","formula":"revenue - cost","alias":"profit","dimensions":[{"dimensionCode":"dept","fieldCode":"dept_code","fieldName":"部门","sort":1},{"dimensionCode":"year","fieldCode":"fiscal_year","fieldName":"年度","sort":2}]}',
  1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
--- 5. 预警规则
+/* 5. 预警规则 */
 INSERT INTO ATELIER_WARNING_RULE (PK_WARNING_RULE, CATALOG_CODE, RULE_CODE, RULE_NAME, METRIC_CODES, EXPRESSION, ENABLED, WARNING_LEVEL, NOTIFY_CONFIG, COMMENTS, CREATE_TIME, MODIFY_TIME)
 VALUES ('wr-1', 'finance', 'low_profit', '利润过低预警', 'profit', 'profit < 500', 1, 2, '{"channels":["email"],"stub":true}', '演示预警规则', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
--- 演示业务数据
+/* 演示业务数据 */
 INSERT INTO dept (id, name) VALUES ('d1', '销售部');
 INSERT INTO dept (id, name) VALUES ('d2', '研发部');
 

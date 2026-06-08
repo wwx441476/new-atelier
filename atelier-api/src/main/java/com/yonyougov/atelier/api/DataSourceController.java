@@ -56,7 +56,11 @@ public class DataSourceController {
     public ApiResponse<DataSourceResponse> save(@RequestBody DataSourceRequest request) {
         DataSourceConfig config = toConfig(request);
         DataSourceConfig saved = persistenceService.save(config);
-        registry.refresh(saved);
+        if (saved.isEnabled()) {
+            registry.refresh(saved);
+        } else {
+            registry.unregister(saved.getId());
+        }
         return ApiResponse.ok(toResponse(saved));
     }
 
@@ -82,11 +86,11 @@ public class DataSourceController {
             throw new AtelierException("数据源 id 不能为空");
         }
         return DataSourceConfig.builder()
-                .id(request.getId())
+                .id(request.getId().trim())
                 .name(request.getName())
                 .jdbcUrl(request.getJdbcUrl())
                 .username(request.getUsername())
-                .password(request.getPassword())
+                .password(request.getPassword() != null ? request.getPassword() : "")
                 .dbType(DbType.fromString(request.getDbType()))
                 .enabled(request.getEnabled() == null || request.getEnabled())
                 .build();

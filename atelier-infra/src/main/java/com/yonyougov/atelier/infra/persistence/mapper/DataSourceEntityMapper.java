@@ -36,8 +36,8 @@ public final class DataSourceEntityMapper {
                 .pkDatasource(config.getId())
                 .dsName(config.getName())
                 .connectUrl(config.getJdbcUrl())
-                .dsUsername(PasswordCrypto.encrypt(config.getUsername()))
-                .verification(PasswordCrypto.encrypt(config.getPassword()))
+                .dsUsername(PasswordCrypto.encrypt(nullToEmpty(config.getUsername())))
+                .verification(PasswordCrypto.encrypt(nullToEmpty(config.getPassword())))
                 .dbType(config.getDbType() != null ? config.getDbType().name() : DbType.UNKNOWN.name())
                 .enable(config.isEnabled() ? 1 : 0)
                 .createTime(now)
@@ -48,8 +48,12 @@ public final class DataSourceEntityMapper {
     public static void mergeEntity(DataSourceEntity entity, DataSourceConfig config) {
         entity.setDsName(config.getName());
         entity.setConnectUrl(config.getJdbcUrl());
-        entity.setDsUsername(PasswordCrypto.encrypt(config.getUsername()));
-        entity.setVerification(PasswordCrypto.encrypt(config.getPassword()));
+        if (config.getUsername() != null) {
+            entity.setDsUsername(PasswordCrypto.encrypt(config.getUsername()));
+        }
+        if (config.getPassword() != null && !config.getPassword().isEmpty()) {
+            entity.setVerification(PasswordCrypto.encrypt(config.getPassword()));
+        }
         entity.setDbType(config.getDbType() != null ? config.getDbType().name() : DbType.UNKNOWN.name());
         entity.setEnable(config.isEnabled() ? 1 : 0);
         entity.setModifyTime(LocalDateTime.now());
@@ -57,5 +61,9 @@ public final class DataSourceEntityMapper {
 
     private static boolean isEnabled(DataSourceEntity entity) {
         return entity.getEnable() == null || entity.getEnable() == 1;
+    }
+
+    private static String nullToEmpty(String value) {
+        return value != null ? value : "";
     }
 }
