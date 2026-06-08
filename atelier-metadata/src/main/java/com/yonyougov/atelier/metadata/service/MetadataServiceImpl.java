@@ -45,17 +45,10 @@ public class MetadataServiceImpl implements MetadataService {
     public MetadataServiceImpl(MetaTableJpaRepository tableRepository,
                                MetaTableFieldJpaRepository fieldRepository,
                                DataSourceRegistry dataSourceRegistry) {
-        this(tableRepository, fieldRepository, dataSourceRegistry, new JdbcTemplate());
-    }
-
-    MetadataServiceImpl(MetaTableJpaRepository tableRepository,
-                        MetaTableFieldJpaRepository fieldRepository,
-                        DataSourceRegistry dataSourceRegistry,
-                        JdbcTemplate jdbcTemplate) {
         this.tableRepository = tableRepository;
         this.fieldRepository = fieldRepository;
         this.dataSourceRegistry = dataSourceRegistry;
-        this.jdbcTemplate = jdbcTemplate;
+        this.jdbcTemplate = new JdbcTemplate();
     }
 
     @Override

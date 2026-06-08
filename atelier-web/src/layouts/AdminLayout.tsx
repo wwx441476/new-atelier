@@ -42,16 +42,26 @@ export default function AdminLayout() {
             height: 64,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            padding: '0 16px',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            gap: 10,
+            padding: collapsed ? '0 8px' : '0 16px',
           }}
         >
-          <Typography.Title
-            level={5}
-            style={{ color: '#fff', margin: 0, whiteSpace: 'nowrap' }}
-          >
-            {collapsed ? 'A' : 'Atelier 数据工场'}
-          </Typography.Title>
+          <img
+            src="/favicon.svg"
+            alt="Atelier"
+            width={28}
+            height={28}
+            style={{ flexShrink: 0 }}
+          />
+          {!collapsed && (
+            <Typography.Title
+              level={5}
+              style={{ color: '#fff', margin: 0, whiteSpace: 'nowrap' }}
+            >
+              Atelier 数据工场
+            </Typography.Title>
+          )}
         </div>
         <Menu
           theme="dark"
