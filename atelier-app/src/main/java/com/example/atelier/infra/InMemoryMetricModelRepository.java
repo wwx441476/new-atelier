@@ -1,0 +1,41 @@
+package com.example.atelier.infra;
+
+import com.example.atelier.domain.model.MetricModel;
+import com.example.atelier.domain.model.TableJoin;
+import com.example.atelier.metrics.spi.MetricModelRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.Collections;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * 内存模型仓储 — 演示用，待 JPA 实现后替换。
+ */
+@Repository
+public class InMemoryMetricModelRepository implements MetricModelRepository {
+
+    private final Map<String, MetricModel> store = new ConcurrentHashMap<>();
+
+    public InMemoryMetricModelRepository() {
+        store.put("finance_model", MetricModel.builder()
+                .modelCode("finance_model")
+                .modelName("财务事实模型")
+                .datasourceId("ds-demo")
+                .mainTableCode("orders")
+                .joins(Collections.singletonList(TableJoin.builder()
+                        .joinType("LEFT JOIN")
+                        .tableCode("dept")
+                        .leftTableCode("orders")
+                        .joinFields(Collections.singletonList(
+                                TableJoin.JoinField.builder().leftField("dept_id").rightField("id").build()))
+                        .build()))
+                .build());
+    }
+
+    @Override
+    public Optional<MetricModel> findByCode(String modelCode) {
+        return Optional.ofNullable(store.get(modelCode));
+    }
+}

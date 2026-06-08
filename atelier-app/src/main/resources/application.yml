@@ -21,7 +21,7 @@ spring:
 
 logging:
   level:
-    com.yonyougov.atelier: INFO
+    com.example.atelier: INFO
 
 # 数据源配置 — 替代 bd-platform DataSourceVO + ConnectionPoolManager
 atelier:

@@ -394,7 +394,7 @@ curl -X POST http://localhost:8090/api/v2/warning/rules/evaluate \
 # application.yml
 logging:
   level:
-    com.yonyougov.atelier: DEBUG
+    com.example.atelier: DEBUG
     org.springframework.web: DEBUG
 ```
 
@@ -449,7 +449,7 @@ mvn test -pl atelier-infra
 mvn test -pl atelier-metrics
 ```
 
-集成测试类位于 `atelier-app/src/test/java/com/yonyougov/atelier/api/`：
+集成测试类位于 `atelier-app/src/test/java/com/example/atelier/api/`：
 
 - `DataSourceApiIntegrationTest`（含 `addDatasource_shouldPersistRefreshRegistryAndTestConnection` 新建验收）
 - `MetadataApiIntegrationTest`
