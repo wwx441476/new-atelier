@@ -8,14 +8,15 @@ import {
   Select,
   Space,
   Table,
+  Typography,
   message,
 } from 'antd';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageHeader from '../components/PageHeader';
 import { metadataApi } from '../api/metadata';
 import { datasourceApi } from '../api/datasource';
-import type { DataSourceResponse, MetaTable, MetaTableField } from '../api/types';
+import type { DataSourceResponse, MetaTable, MetaTableField, QueryResult } from '../api/types';
 
 export default function MetadataPage() {
   const [loading, setLoading] = useState(false);
@@ -30,6 +31,11 @@ export default function MetadataPage() {
   const [fieldsMap, setFieldsMap] = useState<Record<string, MetaTableField[]>>({});
   const [tableForm] = Form.useForm<MetaTable>();
   const [fieldForm] = Form.useForm<MetaTableField>();
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewTable, setPreviewTable] = useState<MetaTable | null>(null);
+  const [previewResult, setPreviewResult] = useState<QueryResult | null>(null);
+  const [previewPage, setPreviewPage] = useState({ pageIndex: 1, pageSize: 20 });
 
   const loadTables = useCallback(async () => {
     setLoading(true);
@@ -95,6 +101,30 @@ export default function MetadataPage() {
     setFieldModalOpen(true);
   };
 
+  const loadPreview = async (table: MetaTable, pageIndex: number, pageSize: number) => {
+    if (!table.id) {
+      return;
+    }
+    setPreviewLoading(true);
+    try {
+      const result = await metadataApi.previewTable(table.id, pageIndex, pageSize);
+      setPreviewResult(result);
+      setPreviewPage({ pageIndex, pageSize });
+    } catch {
+      setPreviewResult(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const openPreview = (record: MetaTable) => {
+    setPreviewTable(record);
+    setPreviewResult(null);
+    setPreviewPage({ pageIndex: 1, pageSize: 20 });
+    setPreviewModalOpen(true);
+    loadPreview(record, 1, 20);
+  };
+
   const handleSaveField = async () => {
     const values = await fieldForm.validateFields();
     if (editingField?.id) {
@@ -114,9 +144,17 @@ export default function MetadataPage() {
     { title: '备注', dataIndex: 'comments', ellipsis: true },
     {
       title: '操作',
-      width: 140,
+      width: 220,
       render: (_, record) => (
         <Space>
+          <Button
+            type="link"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => openPreview(record)}
+          >
+            预览数据
+          </Button>
           <Button type="link" size="small" onClick={() => openEditTable(record)}>
             编辑
           </Button>
@@ -166,6 +204,17 @@ export default function MetadataPage() {
       ),
     },
   ];
+
+  const previewColumns: ColumnsType<Record<string, unknown>> = (() => {
+    const keys = previewResult?.rows?.length
+      ? Object.keys(previewResult.rows[0])
+      : Object.keys(previewResult?.headers || {});
+    return keys.map((key) => ({
+      title: previewResult?.headers?.[key] || key,
+      dataIndex: key,
+      ellipsis: true,
+    }));
+  })();
 
   return (
     <>
@@ -256,6 +305,39 @@ export default function MetadataPage() {
             <Input.TextArea rows={2} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title={`数据预览 — ${previewTable?.tableCode || ''}`}
+        open={previewModalOpen}
+        onCancel={() => setPreviewModalOpen(false)}
+        footer={null}
+        width={900}
+      >
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+          数据源: {previewTable?.datasourceId} · 表名: {previewTable?.tableName}
+        </Typography.Paragraph>
+        <Table
+          rowKey={(_, i) => String(i)}
+          size="small"
+          loading={previewLoading}
+          columns={previewColumns}
+          dataSource={previewResult?.rows || []}
+          scroll={{ x: true }}
+          locale={{ emptyText: previewLoading ? '加载中...' : '暂无数据' }}
+          pagination={{
+            current: previewPage.pageIndex,
+            pageSize: previewPage.pageSize,
+            total: previewResult?.total ?? 0,
+            showSizeChanger: true,
+            showTotal: (t) => `共 ${t} 条`,
+            onChange: (page, pageSize) => {
+              if (previewTable) {
+                loadPreview(previewTable, page, pageSize);
+              }
+            },
+          }}
+        />
       </Modal>
 
       <Modal

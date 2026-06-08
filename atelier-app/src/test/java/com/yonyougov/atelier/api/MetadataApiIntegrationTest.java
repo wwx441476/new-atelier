@@ -3,6 +3,7 @@ package com.yonyougov.atelier.api;
 import com.yonyougov.atelier.api.dto.ApiResponse;
 import com.yonyougov.atelier.domain.metadata.MetaTable;
 import com.yonyougov.atelier.domain.metadata.MetaTableField;
+import com.yonyougov.atelier.domain.query.QueryResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,6 +18,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 public class MetadataApiIntegrationTest {
@@ -52,5 +54,41 @@ public class MetadataApiIntegrationTest {
         assertEquals(200, response.getStatusCodeValue());
         assertNotNull(response.getBody());
         assertEquals(4, response.getBody().getData().size());
+    }
+
+    @Test
+    public void previewTable_shouldReturnOrdersData() {
+        ResponseEntity<ApiResponse<QueryResult>> response = restTemplate.exchange(
+                "http://localhost:" + port + "/api/v2/metadata/tables/mt-orders/preview?pageIndex=1&pageSize=20",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<ApiResponse<QueryResult>>() {
+                });
+        assertEquals(200, response.getStatusCodeValue());
+        assertNotNull(response.getBody());
+        assertEquals(0, response.getBody().getCode());
+        QueryResult result = response.getBody().getData();
+        assertNotNull(result);
+        assertEquals(4, result.getTotal());
+        assertEquals(4, result.getRows().size());
+        assertNotNull(result.getHeaders());
+        assertTrue(result.getHeaders().containsKey("dept_code"));
+        assertEquals("部门编码", result.getHeaders().get("dept_code"));
+    }
+
+    @Test
+    public void previewTable_shouldSupportLegacyMlPrefix() {
+        ResponseEntity<ApiResponse<QueryResult>> response = restTemplate.exchange(
+                "http://localhost:" + port + "/api/v2/metadata/tables/ml-orders/preview?pageIndex=1&pageSize=20",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<ApiResponse<QueryResult>>() {
+                });
+        assertEquals(200, response.getStatusCodeValue());
+        assertNotNull(response.getBody());
+        assertEquals(0, response.getBody().getCode());
+        QueryResult result = response.getBody().getData();
+        assertNotNull(result);
+        assertEquals(4, result.getTotal());
     }
 }

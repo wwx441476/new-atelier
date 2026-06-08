@@ -3,6 +3,7 @@ package com.yonyougov.atelier.api;
 import com.yonyougov.atelier.api.dto.ApiResponse;
 import com.yonyougov.atelier.domain.metadata.MetaTable;
 import com.yonyougov.atelier.domain.metadata.MetaTableField;
+import com.yonyougov.atelier.domain.query.QueryResult;
 import com.yonyougov.atelier.metadata.spi.MetadataService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -75,5 +76,13 @@ public class MetadataController {
     @PostMapping("/discover")
     public ApiResponse<List<MetaTable>> discover(@RequestParam String datasourceId) {
         return ApiResponse.ok(metadataService.discoverTables(datasourceId));
+    }
+
+    @GetMapping("/tables/{id}/preview")
+    public ApiResponse<QueryResult> previewTable(
+            @PathVariable String id,
+            @RequestParam(value = "pageIndex", defaultValue = "1") int pageIndex,
+            @RequestParam(value = "pageSize", defaultValue = "20") int pageSize) {
+        return ApiResponse.ok(metadataService.previewTableData(id, pageIndex, pageSize));
     }
 }

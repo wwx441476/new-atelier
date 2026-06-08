@@ -34,7 +34,7 @@
 | 类型 | 关键 ID / Code | 说明 |
 |------|----------------|------|
 | 数据源 | `ds-demo` | Demo H2，与元数据库共用同一 H2 实例 |
-| 元数据表 | `mt-orders` / `orders` | 订单事实表，含 4 个字段 |
+| 元数据表 | `mt-orders` / `orders`（兼容 `ml-orders`） | 订单事实表，含 4 个字段；历史上曾误用 `ml-` 前缀，后端预览接口已做兼容映射 |
 | 维度 | `dim-dept`（部门 LIST）、`dim-year`（财年 TIME_DIM） | 各含演示维度值 |
 | 指标 | `revenue`、`cost`、`profit` | TABLE + COMPOSITE 类型 |
 | 预警规则 | `low_profit` | 关联 `profit` 指标 |
@@ -287,7 +287,9 @@ curl -X POST http://localhost:8090/api/v2/datasources/test \
 | 4 | 点击「新建表」 | 填写表编码 `test_table`、表名、选择数据源 `ds-demo`，保存成功 |
 | 5 | 在 `test_table` 行点击「新增字段」 | 填写字段编码 `field_a`、字段名、类型 `VARCHAR`，保存成功 |
 | 6 | 删除 `field_a` | 字段消失 |
-| 7 | 删除 `test_table` | 表从列表移除 |
+| 7 | 在 `orders` 行点击「预览数据」 | 弹窗显示 4 条订单记录，列头为字段中文名（部门编码、财年、金额、成本等） |
+| 8 | 在预览弹窗翻页 / 切换每页条数 | 分页正常（种子数据共 4 条，默认一页显示完毕） |
+| 9 | 删除 `test_table` | 表从列表移除 |
 
 **API 等价验证：**
 
@@ -295,7 +297,14 @@ curl -X POST http://localhost:8090/api/v2/datasources/test \
 curl -s http://localhost:8090/api/v2/metadata/tables
 curl -s http://localhost:8090/api/v2/metadata/tables/mt-orders
 curl -s http://localhost:8090/api/v2/metadata/tables/mt-orders/fields
+curl -s "http://localhost:8090/api/v2/metadata/tables/mt-orders/preview?pageIndex=1&pageSize=20"
+# 期望：code=0，data.total=4，data.rows 含 dept_code/fiscal_year/amount/cost_amount
 ```
+
+如前端仍在请求 `.../tables/ml-orders/preview`，后端也应兼容返回同样结果；若浏览器 Network 显示 **404**，通常意味着：
+
+- 后端未启动（8090 无服务）或启动端口不是 8090；
+- Vite 代理未生效（请求没有走 `http://localhost:5173/api/*` 代理到 8090）。
 
 ### 5.3 维度管理（/dimensions）
 
@@ -665,6 +674,7 @@ curl -sf "$BASE/datasources" | grep -q '"ds-demo"' && echo "OK: datasources"
 echo "== 2. 元数据 =="
 curl -sf "$BASE/metadata/tables" | grep -q '"orders"' && echo "OK: metadata tables"
 curl -sf "$BASE/metadata/tables/mt-orders/fields" | grep -q '"dept_code"' && echo "OK: metadata fields"
+curl -sf "$BASE/metadata/tables/mt-orders/preview?pageIndex=1&pageSize=20" | grep -q '"total":4' && echo "OK: metadata preview"
 
 echo "== 3. 维度 =="
 curl -sf "$BASE/dimensions" | grep -q '"dept"' && echo "OK: dimensions"

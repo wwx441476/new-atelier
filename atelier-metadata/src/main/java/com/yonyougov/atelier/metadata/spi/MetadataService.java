@@ -2,6 +2,7 @@ package com.yonyougov.atelier.metadata.spi;
 
 import com.yonyougov.atelier.domain.metadata.MetaTable;
 import com.yonyougov.atelier.domain.metadata.MetaTableField;
+import com.yonyougov.atelier.domain.query.QueryResult;
 
 import java.util.List;
 import java.util.Optional;
@@ -29,4 +30,7 @@ public interface MetadataService {
 
     /** 从 JDBC 元数据发现表（简化桩） */
     List<MetaTable> discoverTables(String datasourceId);
+
+    /** 分页预览元数据表对应的物理表数据 */
+    QueryResult previewTableData(String tableId, int pageIndex, int pageSize);
 }

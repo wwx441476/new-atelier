@@ -1,5 +1,5 @@
 import { deleteData, getData, postData } from './client';
-import type { MetaTable, MetaTableField } from './types';
+import type { MetaTable, MetaTableField, QueryResult } from './types';
 
 export const metadataApi = {
   listTables: (datasourceId?: string) =>
@@ -14,4 +14,6 @@ export const metadataApi = {
   deleteField: (fieldId: string) => deleteData<void>(`/metadata/fields/${fieldId}`),
   discover: (datasourceId: string) =>
     postData<MetaTable[]>(`/metadata/discover?datasourceId=${datasourceId}`),
+  previewTable: (tableId: string, pageIndex = 1, pageSize = 20) =>
+    getData<QueryResult>(`/metadata/tables/${tableId}/preview`, { pageIndex, pageSize }),
 };

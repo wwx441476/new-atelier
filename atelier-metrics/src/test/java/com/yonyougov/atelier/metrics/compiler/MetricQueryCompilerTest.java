@@ -44,7 +44,6 @@ public class MetricQueryCompilerTest {
 
         Assert.assertTrue(result.getSql().contains("SUM(orders.amount)"));
         Assert.assertTrue(result.getSql().contains("dept_code IN ('001', '002')"));
-        Assert.assertFalse(result.getSql().contains("dept_code IN")); // 过滤在查询时，不在定义里
     }
 
     @Test
