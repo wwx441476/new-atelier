@@ -19,8 +19,11 @@ public final class TableDdlBuilder {
     private TableDdlBuilder() {
     }
 
-    public static String build(DbType dbType, String tableCode, List<MetaTableField> fields) {
+    public static String build(DbType dbType, String schemaCode, String tableCode, List<MetaTableField> fields) {
         validateIdentifier(tableCode, "表编码");
+        if (schemaCode != null && !schemaCode.trim().isEmpty()) {
+            validateIdentifier(schemaCode, "Schema");
+        }
         if (fields == null || fields.isEmpty()) {
             throw new AtelierException("请先配置字段后再生成建表 DDL");
         }
@@ -39,8 +42,16 @@ public final class TableDdlBuilder {
             throw new AtelierException("请先配置有效字段后再生成建表 DDL");
         }
 
-        return createTablePrefix(resolvedDbType) + tableCode + " (\n  "
+        String qualifiedTable = qualifyTableName(schemaCode, tableCode);
+        return createTablePrefix(resolvedDbType) + qualifiedTable + " (\n  "
                 + String.join(",\n  ", columnDefs) + "\n)";
+    }
+
+    private static String qualifyTableName(String schemaCode, String tableCode) {
+        if (schemaCode == null || schemaCode.trim().isEmpty()) {
+            return tableCode;
+        }
+        return schemaCode + "." + tableCode;
     }
 
     private static String buildColumnDefinition(DbType dbType, MetaTableField field) {

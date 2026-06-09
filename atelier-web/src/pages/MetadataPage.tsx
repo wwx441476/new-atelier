@@ -20,6 +20,7 @@ import { metadataApi } from '../api/metadata';
 import { datasourceApi } from '../api/datasource';
 import type {
   DataSourceResponse,
+  DbSchemaInfo,
   MetaTable,
   MetaTableDdlResult,
   MetaTableField,
@@ -50,6 +51,8 @@ export default function MetadataPage() {
   const [ddlExecuting, setDdlExecuting] = useState(false);
   const [ddlTable, setDdlTable] = useState<MetaTable | null>(null);
   const [ddlResult, setDdlResult] = useState<MetaTableDdlResult | null>(null);
+  const [schemaOptions, setSchemaOptions] = useState<DbSchemaInfo[]>([]);
+  const [schemaLoading, setSchemaLoading] = useState(false);
 
   const loadTables = useCallback(async () => {
     setLoading(true);
@@ -77,16 +80,36 @@ export default function MetadataPage() {
     setFieldsMap((prev) => ({ ...prev, [tableId]: fields }));
   };
 
+  const loadSchemaOptions = async (datasourceId?: string) => {
+    if (!datasourceId) {
+      setSchemaOptions([]);
+      return;
+    }
+    setSchemaLoading(true);
+    try {
+      setSchemaOptions(await datasourceApi.browseSchemas(datasourceId));
+    } catch {
+      setSchemaOptions([]);
+    } finally {
+      setSchemaLoading(false);
+    }
+  };
+
   const openCreateTable = () => {
     setEditingTable(null);
     tableForm.resetFields();
     tableForm.setFieldsValue({ datasourceId: filterDs });
+    setSchemaOptions([]);
+    if (filterDs) {
+      loadSchemaOptions(filterDs);
+    }
     setTableModalOpen(true);
   };
 
   const openEditTable = (record: MetaTable) => {
     setEditingTable(record);
     tableForm.setFieldsValue(record);
+    loadSchemaOptions(record.datasourceId);
     setTableModalOpen(true);
   };
 
@@ -184,6 +207,7 @@ export default function MetadataPage() {
     { title: '表编码', dataIndex: 'tableCode', width: 120 },
     { title: '表名称', dataIndex: 'tableName', width: 140 },
     { title: '目录', dataIndex: 'catalogCode', width: 100 },
+    { title: 'Schema', dataIndex: 'schemaCode', width: 100 },
     { title: '数据源', dataIndex: 'datasourceId', width: 120 },
     { title: '备注', dataIndex: 'comments', ellipsis: true },
     {
@@ -351,6 +375,24 @@ export default function MetadataPage() {
           <Form.Item name="datasourceId" label="数据源" rules={[{ required: true }]}>
             <Select
               options={datasources.map((d) => ({ label: `${d.name} (${d.id})`, value: d.id }))}
+              onChange={(value: string) => {
+                tableForm.setFieldValue('schemaCode', undefined);
+                loadSchemaOptions(value);
+              }}
+            />
+          </Form.Item>
+          <Form.Item
+            name="schemaCode"
+            label="Schema"
+            tooltip="物理库 schema，用于预览、建表 DDL 等；留空则使用数据源默认 schema"
+          >
+            <Select
+              allowClear
+              showSearch
+              placeholder="选择或留空"
+              loading={schemaLoading}
+              options={schemaOptions.map((s) => ({ label: s.name, value: s.name }))}
+              notFoundContent={schemaLoading ? '加载中...' : '暂无 schema，可留空'}
             />
           </Form.Item>
           <Form.Item name="comments" label="备注">
@@ -367,7 +409,9 @@ export default function MetadataPage() {
         width={900}
       >
         <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-          数据源: {previewTable?.datasourceId} · 表名: {previewTable?.tableName}
+          数据源: {previewTable?.datasourceId}
+          {previewTable?.schemaCode ? ` · Schema: ${previewTable.schemaCode}` : ''} · 表名:{' '}
+          {previewTable?.tableName}
         </Typography.Paragraph>
         {previewError && (
           <Alert
@@ -440,7 +484,8 @@ export default function MetadataPage() {
         styles={{ body: { maxHeight: '70vh', overflow: 'auto' } }}
       >
         <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          数据源: {ddlResult?.datasourceId || ddlTable?.datasourceId} · 物理表:{' '}
+          数据源: {ddlResult?.datasourceId || ddlTable?.datasourceId}
+          {ddlTable?.schemaCode ? ` · Schema: ${ddlTable.schemaCode}` : ''} · 物理表:{' '}
           {ddlResult?.tableCode || ddlTable?.tableCode}
         </Typography.Paragraph>
         {ddlResult?.tableExists && (

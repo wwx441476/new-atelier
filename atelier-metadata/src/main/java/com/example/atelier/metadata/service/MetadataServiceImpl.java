@@ -83,6 +83,7 @@ public class MetadataServiceImpl implements MetadataService {
         entity.setTableCode(table.getTableCode());
         entity.setTableName(table.getTableName());
         entity.setPkDatasource(table.getDatasourceId());
+        entity.setSchemaCode(normalizeSchemaCode(table.getSchemaCode()));
         entity.setComments(table.getComments());
         entity.setModifyTime(LocalDateTime.now());
         MetaTableEntity saved = tableRepository.save(entity);
@@ -140,9 +141,11 @@ public class MetadataServiceImpl implements MetadataService {
                     if (tableName == null || tableName.startsWith("ATELIER_") || tableName.equals("DMP_DATASOURCE")) {
                         continue;
                     }
+                    String tableSchema = rs.getString("TABLE_SCHEM");
                     discovered.add(MetaTable.builder()
                             .tableCode(tableName)
                             .tableName(tableName)
+                            .schemaCode(tableSchema)
                             .datasourceId(datasourceId)
                             .build());
                 }
@@ -167,11 +170,12 @@ public class MetadataServiceImpl implements MetadataService {
         }
         DbType dbType = config.getDbType() != null ? config.getDbType() : DbType.UNKNOWN;
         List<MetaTableField> fields = listFields(entity.getPkMetaTable());
-        String ddl = TableDdlBuilder.build(dbType, tableCode, fields);
+        String schemaCode = entity.getSchemaCode();
+        String ddl = TableDdlBuilder.build(dbType, schemaCode, tableCode, fields);
 
         boolean tableExists = false;
         try (Connection connection = dataSourceRegistry.getConnection(datasourceId)) {
-            tableExists = physicalTableExists(connection, tableCode);
+            tableExists = physicalTableExists(connection, schemaCode, tableCode);
         } catch (Exception e) {
             throw new AtelierException("检查物理表是否存在失败: " + e.getMessage(), e);
         }
@@ -217,7 +221,7 @@ public class MetadataServiceImpl implements MetadataService {
         int page = pageIndex <= 0 ? 1 : pageIndex;
         int size = pageSize <= 0 ? 20 : pageSize;
         List<MetaTableField> previewFields = listFields(entity.getPkMetaTable());
-        String sql = buildPreviewSql(tableCode, previewFields);
+        String sql = buildPreviewSql(entity.getSchemaCode(), tableCode, previewFields);
 
         try (Connection connection = dataSourceRegistry.getConnection(datasourceId)) {
             long total = jdbcTemplate.count(connection, sql);
@@ -265,24 +269,31 @@ public class MetadataServiceImpl implements MetadataService {
         }
     }
 
-    private boolean physicalTableExists(Connection connection, String tableCode) throws java.sql.SQLException {
+    private boolean physicalTableExists(Connection connection, String schemaCode, String tableCode)
+            throws java.sql.SQLException {
         DatabaseMetaData metaData = connection.getMetaData();
         String catalog = connection.getCatalog();
-        String schema = resolveSchema(connection);
-        try (ResultSet rs = metaData.getTables(catalog, schema, tableCode, new String[]{"TABLE"})) {
-            if (rs.next()) {
-                return true;
-            }
+        String schema = resolvePhysicalSchema(connection, schemaCode);
+        if (tableExistsInSchema(metaData, catalog, schema, tableCode)) {
+            return true;
         }
         if (!tableCode.equals(tableCode.toUpperCase())) {
-            try (ResultSet rs = metaData.getTables(catalog, schema, tableCode.toUpperCase(), new String[]{"TABLE"})) {
-                return rs.next();
-            }
+            return tableExistsInSchema(metaData, catalog, schema, tableCode.toUpperCase());
         }
         return false;
     }
 
-    private String resolveSchema(Connection connection) throws java.sql.SQLException {
+    private boolean tableExistsInSchema(DatabaseMetaData metaData, String catalog, String schema, String tableCode)
+            throws java.sql.SQLException {
+        try (ResultSet rs = metaData.getTables(catalog, schema, tableCode, new String[]{"TABLE"})) {
+            return rs.next();
+        }
+    }
+
+    private String resolvePhysicalSchema(Connection connection, String schemaCode) throws java.sql.SQLException {
+        if (schemaCode != null && !schemaCode.trim().isEmpty()) {
+            return schemaCode.trim();
+        }
         String schema = connection.getSchema();
         if (schema != null && !schema.isEmpty()) {
             return schema;
@@ -291,12 +302,39 @@ public class MetadataServiceImpl implements MetadataService {
         return user != null ? user.toUpperCase() : null;
     }
 
-    private String buildPreviewSql(String tableCode, List<MetaTableField> fields) {
+    private String normalizeSchemaCode(String schemaCode) {
+        if (schemaCode == null) {
+            return null;
+        }
+        String trimmed = schemaCode.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        validateSchemaCode(trimmed);
+        return trimmed;
+    }
+
+    private void validateSchemaCode(String schemaCode) {
+        if (!SAFE_TABLE_CODE.matcher(schemaCode).matches()) {
+            throw new AtelierException("非法 Schema，仅允许字母、数字与下划线: " + schemaCode);
+        }
+    }
+
+    private String qualifyTableName(String schemaCode, String tableCode) {
+        if (schemaCode == null || schemaCode.trim().isEmpty()) {
+            return tableCode;
+        }
+        validateSchemaCode(schemaCode.trim());
+        return schemaCode.trim() + "." + tableCode;
+    }
+
+    private String buildPreviewSql(String schemaCode, String tableCode, List<MetaTableField> fields) {
+        String qualifiedTable = qualifyTableName(schemaCode, tableCode);
         List<String> fieldCodes = resolvePreviewFieldCodes(fields);
         if (fieldCodes.isEmpty()) {
-            return "SELECT * FROM " + tableCode;
+            return "SELECT * FROM " + qualifiedTable;
         }
-        return "SELECT " + String.join(", ", fieldCodes) + " FROM " + tableCode;
+        return "SELECT " + String.join(", ", fieldCodes) + " FROM " + qualifiedTable;
     }
 
     private List<String> resolvePreviewFieldCodes(List<MetaTableField> fields) {
@@ -375,6 +413,7 @@ public class MetadataServiceImpl implements MetadataService {
                 .tableCode(entity.getTableCode())
                 .tableName(entity.getTableName())
                 .datasourceId(entity.getPkDatasource())
+                .schemaCode(entity.getSchemaCode())
                 .comments(entity.getComments())
                 .build();
     }

@@ -36,6 +36,9 @@ public class MetaTableEntity {
     @Column(name = "PK_DATASOURCE", length = 36)
     private String pkDatasource;
 
+    @Column(name = "SCHEMA_CODE", length = 100)
+    private String schemaCode;
+
     @Column(name = "COMMENTS", length = 500)
     private String comments;
 

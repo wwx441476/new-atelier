@@ -64,6 +64,7 @@ export interface MetaTable {
   tableCode: string;
   tableName: string;
   datasourceId: string;
+  schemaCode?: string;
   comments?: string;
   fields?: MetaTableField[];
 }

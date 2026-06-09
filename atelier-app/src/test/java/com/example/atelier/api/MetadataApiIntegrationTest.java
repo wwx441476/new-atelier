@@ -61,6 +61,47 @@ public class MetadataApiIntegrationTest {
     }
 
     @Test
+    public void saveTable_withSchema_shouldUseQualifiedNameInPreviewSql() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        MetaTable table = MetaTable.builder()
+                .tableCode("orders")
+                .tableName("订单事实表")
+                .catalogCode("finance")
+                .datasourceId("ds-demo")
+                .schemaCode("PUBLIC")
+                .comments("演示订单表")
+                .build();
+        ResponseEntity<ApiResponse<MetaTable>> saveResponse = restTemplate.exchange(
+                "http://localhost:" + port + "/api/v2/metadata/tables",
+                HttpMethod.POST,
+                new HttpEntity<>(table, headers),
+                new ParameterizedTypeReference<ApiResponse<MetaTable>>() {
+                });
+        assertEquals(0, saveResponse.getBody().getCode());
+        assertEquals("PUBLIC", saveResponse.getBody().getData().getSchemaCode());
+
+        ResponseEntity<ApiResponse<QueryResult>> previewResponse = restTemplate.exchange(
+                "http://localhost:" + port + "/api/v2/metadata/tables/mt-orders/preview?pageIndex=1&pageSize=20",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<ApiResponse<QueryResult>>() {
+                });
+        assertEquals(0, previewResponse.getBody().getCode());
+        assertTrue(previewResponse.getBody().getData().getSql().contains("FROM PUBLIC.orders"));
+
+        table.setId("mt-orders");
+        table.setSchemaCode(null);
+        restTemplate.exchange(
+                "http://localhost:" + port + "/api/v2/metadata/tables",
+                HttpMethod.POST,
+                new HttpEntity<>(table, headers),
+                new ParameterizedTypeReference<ApiResponse<MetaTable>>() {
+                });
+    }
+
+    @Test
     public void previewTable_shouldReturnOrdersData() {
         ResponseEntity<ApiResponse<QueryResult>> response = restTemplate.exchange(
                 "http://localhost:" + port + "/api/v2/metadata/tables/mt-orders/preview?pageIndex=1&pageSize=20",

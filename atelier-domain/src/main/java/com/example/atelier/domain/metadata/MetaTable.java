@@ -26,6 +26,9 @@ public class MetaTable {
 
     private String datasourceId;
 
+    /** 物理库 schema（如 H2 的 PUBLIC、PostgreSQL 的 public） */
+    private String schemaCode;
+
     private String comments;
 
     private List<MetaTableField> fields;
