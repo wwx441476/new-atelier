@@ -4,6 +4,8 @@ import com.example.atelier.api.dto.ApiResponse;
 import com.example.atelier.dimension.spi.DimensionService;
 import com.example.atelier.domain.dimension.Dimension;
 import com.example.atelier.domain.dimension.DimensionValue;
+import com.example.atelier.domain.dimension.TimeValueGenerateRequest;
+import com.example.atelier.domain.dimension.TimeValueGenerateResult;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -65,5 +67,12 @@ public class DimensionController {
     public ApiResponse<Void> deleteValue(@PathVariable String valueId) {
         dimensionService.deleteValue(valueId);
         return ApiResponse.ok(null);
+    }
+
+    @PostMapping("/{id}/values/generate-time")
+    public ApiResponse<TimeValueGenerateResult> generateTimeValues(
+            @PathVariable String id,
+            @RequestBody TimeValueGenerateRequest request) {
+        return ApiResponse.ok(dimensionService.generateTimeValues(id, request));
     }
 }

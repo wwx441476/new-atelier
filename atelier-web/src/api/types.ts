@@ -89,6 +89,19 @@ export interface MetaTableField {
 }
 
 export type DimensionType = 'LIST' | 'TREE' | 'TIME_DIM';
+export type DimensionValueSource = 'MANUAL' | 'TABLE';
+
+export interface DimensionField {
+  id?: string;
+  dimensionId?: string;
+  fieldCode: string;
+  fieldName?: string;
+  fieldType?: string;
+  codeField?: boolean;
+  nameField?: boolean;
+  parentField?: boolean;
+  sort?: number;
+}
 
 export interface Dimension {
   id?: string;
@@ -98,7 +111,28 @@ export interface Dimension {
   type: DimensionType;
   datasourceId: string;
   metaTableId?: string;
+  valueSource?: DimensionValueSource;
   comments?: string;
+  fields?: DimensionField[];
+}
+
+export type TimeGranularity = 'YEAR' | 'QUARTER' | 'MONTH';
+
+export interface TimeValueGenerateRequest {
+  granularity: TimeGranularity;
+  startYear: number;
+  endYear: number;
+  startMonth?: number;
+  endMonth?: number;
+  codeFormat: string;
+  nameFormat: string;
+  skipExisting?: boolean;
+}
+
+export interface TimeValueGenerateResult {
+  generated: number;
+  skipped: number;
+  values: DimensionValue[];
 }
 
 export interface DimensionValue {

@@ -3,6 +3,8 @@ package com.example.atelier.dimension.spi;
 import com.example.atelier.domain.dimension.Dimension;
 import com.example.atelier.domain.dimension.DimensionField;
 import com.example.atelier.domain.dimension.DimensionValue;
+import com.example.atelier.domain.dimension.TimeValueGenerateRequest;
+import com.example.atelier.domain.dimension.TimeValueGenerateResult;
 
 import java.util.List;
 import java.util.Optional;
@@ -27,4 +29,6 @@ public interface DimensionService {
     DimensionValue saveValue(DimensionValue value);
 
     void deleteValue(String valueId);
+
+    TimeValueGenerateResult generateTimeValues(String dimensionId, TimeValueGenerateRequest request);
 }

@@ -31,6 +31,9 @@ public class Dimension {
     /** 关联元数据表 PK */
     private String metaTableId;
 
+    /** 维度值来源：MANUAL 手动维护 / TABLE 数据库表 */
+    private DimensionValueSource valueSource;
+
     private String comments;
 
     private List<DimensionField> fields;

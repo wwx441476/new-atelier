@@ -1,5 +1,5 @@
 import { deleteData, getData, postData } from './client';
-import type { Dimension, DimensionValue } from './types';
+import type { Dimension, DimensionValue, TimeValueGenerateRequest, TimeValueGenerateResult } from './types';
 
 export const dimensionApi = {
   list: () => getData<Dimension[]>('/dimensions'),
@@ -10,4 +10,6 @@ export const dimensionApi = {
   saveValue: (id: string, data: DimensionValue) =>
     postData<DimensionValue>(`/dimensions/${id}/values`, data),
   deleteValue: (valueId: string) => deleteData<void>(`/dimensions/values/${valueId}`),
+  generateTimeValues: (id: string, data: TimeValueGenerateRequest) =>
+    postData<TimeValueGenerateResult>(`/dimensions/${id}/values/generate-time`, data),
 };

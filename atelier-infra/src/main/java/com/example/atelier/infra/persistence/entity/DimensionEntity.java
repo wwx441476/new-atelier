@@ -42,6 +42,9 @@ public class DimensionEntity {
     @Column(name = "PK_META_TABLE", length = 36)
     private String pkMetaTable;
 
+    @Column(name = "VALUE_SOURCE", length = 30)
+    private String valueSource;
+
     @Column(name = "COMMENTS", length = 500)
     private String comments;
 
