@@ -54,7 +54,8 @@ public class MetricQueryCompilerTest {
 
         CompiledQuery result = compiler.compile(request);
 
-        Assert.assertTrue(result.getSql().contains("revenue - cost"));
+        Assert.assertTrue(result.getSql().contains("T0.revenue - T1.cost"));
+        Assert.assertFalse(result.getSql().matches("(?s).*SELECT revenue - cost.*"));
         Assert.assertTrue(result.getSql().contains("INNER JOIN"));
     }
 

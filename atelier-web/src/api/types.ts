@@ -139,3 +139,13 @@ export interface WarningRule {
   notifyConfig?: string;
   comments?: string;
 }
+
+export interface WarningRulePreviewResult {
+  ruleId: string;
+  ruleName: string;
+  expression: string;
+  total: number;
+  matchedCount: number;
+  rows: Record<string, unknown>[];
+  headers?: Record<string, string>;
+}

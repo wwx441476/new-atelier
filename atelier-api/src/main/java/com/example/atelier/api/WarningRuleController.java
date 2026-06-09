@@ -2,6 +2,7 @@ package com.example.atelier.api;
 
 import com.example.atelier.api.dto.ApiResponse;
 import com.example.atelier.domain.warning.WarningRule;
+import com.example.atelier.domain.warning.WarningRulePreviewResult;
 import com.example.atelier.warning.spi.WarningRuleService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -9,6 +10,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
@@ -38,6 +40,14 @@ public class WarningRuleController {
         return warningRuleService.getRule(id)
                 .map(ApiResponse::ok)
                 .orElseGet(() -> ApiResponse.fail("预警规则不存在: " + id));
+    }
+
+    @GetMapping("/{id}/preview")
+    public ApiResponse<WarningRulePreviewResult> preview(
+            @PathVariable String id,
+            @RequestParam(value = "pageIndex", defaultValue = "1") int pageIndex,
+            @RequestParam(value = "pageSize", defaultValue = "20") int pageSize) {
+        return ApiResponse.ok(warningRuleService.previewRule(id, pageIndex, pageSize));
     }
 
     @PostMapping

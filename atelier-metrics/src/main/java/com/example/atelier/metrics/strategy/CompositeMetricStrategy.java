@@ -38,11 +38,12 @@ public class CompositeMetricStrategy implements MetricCompileStrategy {
         List<String> depCodes = extractMetricCodes(formula, deps.keySet());
 
         List<String> selectParts = new ArrayList<>();
-        selectParts.add(formula + " AS " + StringUtils.defaultIfBlank(metric.getAlias(), metric.getCode()));
+        selectParts.add(qualifyFormula(formula, depCodes, deps) + " AS "
+                + StringUtils.defaultIfBlank(metric.getAlias(), metric.getCode()));
 
         if (metric.getDimensions() != null) {
             for (DimensionBinding dim : metric.getDimensions()) {
-                selectParts.add("T0." + dim.getFieldCode() + " AS " + dim.getDimensionCode());
+                selectParts.add("T0." + dim.getFieldCode() + " AS " + quoteIdentifier(dim.getDimensionCode()));
             }
         }
 
@@ -75,6 +76,24 @@ public class CompositeMetricStrategy implements MetricCompileStrategy {
         return metric.getDimensions().stream()
                 .map(dim -> "T0." + dim.getFieldCode() + " = T" + index + "." + dim.getFieldCode())
                 .collect(Collectors.joining(" AND "));
+    }
+
+    private String quoteIdentifier(String identifier) {
+        return "\"" + identifier.replace("\"", "\"\"") + "\"";
+    }
+
+    private String qualifyFormula(String formula, List<String> depCodes, Map<String, MetricDefinition> deps) {
+        String qualified = formula;
+        for (int i = 0; i < depCodes.size(); i++) {
+            String code = depCodes.get(i);
+            MetricDefinition dep = deps.get(code);
+            if (dep == null) {
+                continue;
+            }
+            String colAlias = StringUtils.defaultIfBlank(dep.getAlias(), dep.getCode());
+            qualified = qualified.replaceAll("\\b" + Pattern.quote(code) + "\\b", "T" + i + "." + colAlias);
+        }
+        return qualified;
     }
 
     private List<String> extractMetricCodes(String formula, java.util.Set<String> knownCodes) {

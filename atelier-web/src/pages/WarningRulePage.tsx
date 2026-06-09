@@ -10,14 +10,15 @@ import {
   Switch,
   Table,
   Tag,
+  Typography,
   message,
 } from 'antd';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageHeader from '../components/PageHeader';
 import { warningApi } from '../api/warning';
 import { metricApi } from '../api/metric';
-import type { MetricDefinition, WarningRule } from '../api/types';
+import type { MetricDefinition, WarningRule, WarningRulePreviewResult } from '../api/types';
 
 export default function WarningRulePage() {
   const [loading, setLoading] = useState(false);
@@ -26,6 +27,11 @@ export default function WarningRulePage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<WarningRule | null>(null);
   const [form] = Form.useForm<WarningRule>();
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewRule, setPreviewRule] = useState<WarningRule | null>(null);
+  const [previewResult, setPreviewResult] = useState<WarningRulePreviewResult | null>(null);
+  const [previewPage, setPreviewPage] = useState({ pageIndex: 1, pageSize: 20 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,6 +81,51 @@ export default function WarningRulePage() {
     value: m.code,
   }));
 
+  const loadPreview = async (rule: WarningRule, pageIndex: number, pageSize: number) => {
+    if (!rule.id) {
+      return;
+    }
+    setPreviewLoading(true);
+    try {
+      const result = await warningApi.previewRule(rule.id, pageIndex, pageSize);
+      setPreviewResult(result);
+      setPreviewPage({ pageIndex, pageSize });
+    } catch {
+      setPreviewResult(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const openPreview = (record: WarningRule) => {
+    setPreviewRule(record);
+    setPreviewResult(null);
+    setPreviewPage({ pageIndex: 1, pageSize: 20 });
+    setPreviewModalOpen(true);
+    loadPreview(record, 1, 20);
+  };
+
+  const previewColumns: ColumnsType<Record<string, unknown>> = (() => {
+    const keys = previewResult?.rows?.length
+      ? Object.keys(previewResult.rows[0])
+      : Object.keys(previewResult?.headers || {});
+    return keys.map((key) => ({
+      title: previewResult?.headers?.[key] || key,
+      dataIndex: key,
+      ellipsis: key !== '_triggered',
+      render: (value: unknown) => {
+        if (key === '_triggered') {
+          return value ? (
+            <Tag color="error">触发</Tag>
+          ) : (
+            <Tag color="default">未触发</Tag>
+          );
+        }
+        return value != null ? String(value) : '-';
+      },
+    }));
+  })();
+
   const columns: ColumnsType<WarningRule> = [
     { title: '名称', dataIndex: 'name', width: 160 },
     { title: '编码', dataIndex: 'code', width: 120 },
@@ -105,9 +156,17 @@ export default function WarningRulePage() {
     },
     {
       title: '操作',
-      width: 140,
+      width: 200,
       render: (_, record) => (
         <Space>
+          <Button
+            type="link"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => openPreview(record)}
+          >
+            预览数据
+          </Button>
           <Button type="link" size="small" onClick={() => openEdit(record)}>
             编辑
           </Button>
@@ -152,6 +211,41 @@ export default function WarningRulePage() {
         dataSource={rules}
         pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
       />
+
+      <Modal
+        title={`数据预览 — ${previewRule?.name || ''}`}
+        open={previewModalOpen}
+        onCancel={() => setPreviewModalOpen(false)}
+        footer={null}
+        width={900}
+      >
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+          表达式: {previewResult?.expression || previewRule?.expression} · 本页触发{' '}
+          {previewResult?.matchedCount ?? 0} 条
+        </Typography.Paragraph>
+        <Table
+          rowKey={(_, i) => String(i)}
+          size="small"
+          loading={previewLoading}
+          columns={previewColumns}
+          dataSource={previewResult?.rows || []}
+          scroll={{ x: true }}
+          rowClassName={(record) => (record._triggered ? 'warning-row-triggered' : '')}
+          locale={{ emptyText: previewLoading ? '加载中...' : '暂无数据' }}
+          pagination={{
+            current: previewPage.pageIndex,
+            pageSize: previewPage.pageSize,
+            total: previewResult?.total ?? 0,
+            showSizeChanger: true,
+            showTotal: (t) => `共 ${t} 条`,
+            onChange: (page, pageSize) => {
+              if (previewRule) {
+                loadPreview(previewRule, page, pageSize);
+              }
+            },
+          }}
+        />
+      </Modal>
 
       <Modal
         title={editing ? '编辑预警规则' : '新建预警规则'}

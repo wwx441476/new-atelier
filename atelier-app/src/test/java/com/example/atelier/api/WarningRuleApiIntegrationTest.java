@@ -2,6 +2,7 @@ package com.example.atelier.api;
 
 import com.example.atelier.api.dto.ApiResponse;
 import com.example.atelier.domain.warning.WarningRule;
+import com.example.atelier.domain.warning.WarningRulePreviewResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -58,5 +59,24 @@ public class WarningRuleApiIntegrationTest {
                 });
         assertEquals(200, response.getStatusCodeValue());
         assertEquals(true, response.getBody().getData().get("triggered"));
+    }
+
+    @Test
+    public void previewRule_shouldReturnRowsWithTriggeredFlag() {
+        ResponseEntity<ApiResponse<WarningRulePreviewResult>> response = restTemplate.exchange(
+                "http://localhost:" + port + "/api/v2/warning/rules/wr-1/preview?pageIndex=1&pageSize=20",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<ApiResponse<WarningRulePreviewResult>>() {
+                });
+        assertEquals(200, response.getStatusCodeValue());
+        assertNotNull(response.getBody());
+        WarningRulePreviewResult preview = response.getBody().getData();
+        assertNotNull(preview);
+        assertEquals("利润过低预警", preview.getRuleName());
+        assertEquals("profit < 500", preview.getExpression());
+        assertTrue(preview.getTotal() > 0);
+        assertNotNull(preview.getRows());
+        assertTrue(preview.getRows().stream().anyMatch(r -> Boolean.TRUE.equals(r.get("_triggered"))));
     }
 }

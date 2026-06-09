@@ -24,6 +24,10 @@
             <artifactId>atelier-infra</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.example.atelier</groupId>
+            <artifactId>atelier-query</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.alibaba</groupId>
             <artifactId>QLExpress</artifactId>
             <version>3.3.2</version>
