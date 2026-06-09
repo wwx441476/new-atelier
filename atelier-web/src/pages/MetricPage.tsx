@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Form,
@@ -7,6 +7,7 @@ import {
   Popconfirm,
   Select,
   Space,
+  Spin,
   Table,
   Tag,
   Typography,
@@ -15,14 +16,21 @@ import {
 import { PlusOutlined, ReloadOutlined, CodeOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageHeader from '../components/PageHeader';
+import SqlPreviewBlock from '../components/SqlPreviewBlock';
 import { metricApi } from '../api/metric';
 import { datasourceApi } from '../api/datasource';
+import { dimensionApi } from '../api/dimension';
+import { metadataApi } from '../api/metadata';
 import type {
   AggregationType,
   DataSourceResponse,
+  Dimension,
+  MetaTableField,
   MetricDefinition,
+  MetricQueryRequest,
   MetricType,
   QueryResult,
+  SqlPreviewResult,
 } from '../api/types';
 
 const METRIC_TYPES: { label: string; value: MetricType }[] = [
@@ -33,6 +41,132 @@ const METRIC_TYPES: { label: string; value: MetricType }[] = [
 
 const AGGREGATIONS: AggregationType[] = ['NONE', 'SUM', 'COUNT', 'AVG', 'MAX', 'MIN'];
 
+type QueryFilterGroupForm = {
+  conditions?: Array<{ field?: string; operator?: string; values?: string }>;
+};
+
+function buildQueryRequest(
+  metricCodes: string[],
+  filterGroups: QueryFilterGroupForm[],
+): MetricQueryRequest {
+  const groups = (filterGroups || [])
+    .map((group) => ({
+      conditions: (group.conditions || [])
+        .filter((c) => c.field && c.values)
+        .map((c) => ({
+          field: c.field!,
+          operator: c.operator || 'IN',
+          values: c.values!.split(',').map((v) => v.trim()).filter(Boolean),
+        })),
+    }))
+    .filter((group) => group.conditions.length > 0);
+  const flatFilters = groups.length === 1 ? groups[0].conditions : undefined;
+  return {
+    metricCodes,
+    filterGroups: groups.length > 1 ? groups : undefined,
+    filters: flatFilters,
+  };
+}
+
+function formatSqlColumns(columns: SqlPreviewResult['columns']): string {
+  if (Array.isArray(columns)) {
+    return columns.join(', ');
+  }
+  if (columns && typeof columns === 'object') {
+    return Object.entries(columns)
+      .map(([code, label]) => (label && label !== code ? `${label} (${code})` : code))
+      .join(', ');
+  }
+  return '';
+}
+
+interface DimensionBindingFieldsProps {
+  form: ReturnType<typeof Form.useForm<MetricDefinition>>[0];
+  name: number;
+  rest: { fieldKey?: number };
+  dimensionOptions: { label: string; value: string }[];
+  dimensionByCode: Record<string, Dimension>;
+  fieldsByTableId: Record<string, MetaTableField[]>;
+  allFieldOptions: { label: string; value: string }[];
+  onRemove: () => void;
+}
+
+function DimensionBindingFields({
+  form,
+  name,
+  rest,
+  dimensionOptions,
+  dimensionByCode,
+  fieldsByTableId,
+  allFieldOptions,
+  onRemove,
+}: DimensionBindingFieldsProps) {
+  const dimensionCode = Form.useWatch(['dimensions', name, 'dimensionCode'], form);
+
+  const fieldOptions = useMemo(() => {
+    const dim = dimensionCode ? dimensionByCode[dimensionCode] : undefined;
+    const fields =
+      dim?.metaTableId && fieldsByTableId[dim.metaTableId]
+        ? fieldsByTableId[dim.metaTableId]
+        : undefined;
+    const source = fields ?? Object.values(fieldsByTableId).flat();
+    const seen = new Set<string>();
+    return source
+      .filter((f) => {
+        if (seen.has(f.fieldCode)) return false;
+        seen.add(f.fieldCode);
+        return true;
+      })
+      .map((f) => ({ label: `${f.fieldName} (${f.fieldCode})`, value: f.fieldCode }));
+  }, [dimensionCode, dimensionByCode, fieldsByTableId]);
+
+  const handleDimensionChange = (code: string) => {
+    const dim = dimensionByCode[code];
+    if (!dim) return;
+    const dimensions = [...(form.getFieldValue('dimensions') || [])];
+    const row = dimensions[name] || {};
+    dimensions[name] = {
+      ...row,
+      dimensionCode: code,
+      fieldName: row.fieldName || dim.name,
+    };
+    form.setFieldsValue({ dimensions });
+  };
+
+  return (
+    <Space align="baseline" style={{ display: 'flex', marginBottom: 8 }}>
+      <Form.Item {...rest} name={[name, 'dimensionCode']} rules={[{ required: true }]}>
+        <Select
+          placeholder="维度编码"
+          style={{ width: 140 }}
+          showSearch
+          optionFilterProp="label"
+          options={dimensionOptions}
+          onChange={handleDimensionChange}
+        />
+      </Form.Item>
+      <Form.Item {...rest} name={[name, 'fieldCode']} rules={[{ required: true }]}>
+        <Select
+          placeholder="物理字段"
+          style={{ width: 160 }}
+          showSearch
+          optionFilterProp="label"
+          options={fieldOptions.length > 0 ? fieldOptions : allFieldOptions}
+        />
+      </Form.Item>
+      <Form.Item {...rest} name={[name, 'fieldName']}>
+        <Input placeholder="展示名" style={{ width: 100 }} />
+      </Form.Item>
+      <Form.Item {...rest} name={[name, 'sort']}>
+        <Input placeholder="排序" style={{ width: 60 }} />
+      </Form.Item>
+      <Button type="link" danger onClick={onRemove}>
+        删除
+      </Button>
+    </Space>
+  );
+}
+
 export default function MetricPage() {
   const [loading, setLoading] = useState(false);
   const [metrics, setMetrics] = useState<MetricDefinition[]>([]);
@@ -42,13 +176,40 @@ export default function MetricPage() {
   const [sqlModalOpen, setSqlModalOpen] = useState(false);
   const [queryModalOpen, setQueryModalOpen] = useState(false);
   const [editing, setEditing] = useState<MetricDefinition | null>(null);
-  const [sqlPreview, setSqlPreview] = useState<{ sql: string; columns: string[] } | null>(null);
+  const [sqlPreview, setSqlPreview] = useState<SqlPreviewResult | null>(null);
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
+  const [queryPreviewSql, setQueryPreviewSql] = useState<SqlPreviewResult | null>(null);
+  const [querySqlLoading, setQuerySqlLoading] = useState(false);
   const [previewCode, setPreviewCode] = useState('');
+  const [dimensions, setDimensions] = useState<Dimension[]>([]);
+  const [fieldsByTableId, setFieldsByTableId] = useState<Record<string, MetaTableField[]>>({});
   const [form] = Form.useForm<MetricDefinition>();
   const [queryForm] = Form.useForm();
+  const queryFilterGroups = Form.useWatch('filterGroups', queryForm);
   const metricType = Form.useWatch('type', form);
+  const datasourceId = Form.useWatch('datasourceId', form);
+
+  const refreshQuerySql = useCallback(async () => {
+    if (!queryModalOpen || !previewCode) return;
+    const metricCodes = queryForm.getFieldValue('metricCodes');
+    const codes = Array.isArray(metricCodes) ? metricCodes : [previewCode];
+    const filterGroups = queryForm.getFieldValue('filterGroups') || [];
+    setQuerySqlLoading(true);
+    try {
+      setQueryPreviewSql(await metricApi.previewQuerySql(buildQueryRequest(codes, filterGroups)));
+    } catch {
+      setQueryPreviewSql(null);
+    } finally {
+      setQuerySqlLoading(false);
+    }
+  }, [queryModalOpen, previewCode, queryForm]);
+
+  useEffect(() => {
+    if (!queryModalOpen) return;
+    const timer = setTimeout(refreshQuerySql, 300);
+    return () => clearTimeout(timer);
+  }, [queryFilterGroups, queryModalOpen, previewCode, refreshQuerySql]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,7 +223,58 @@ export default function MetricPage() {
   useEffect(() => {
     load();
     datasourceApi.list().then(setDatasources);
+    dimensionApi.list().then(setDimensions);
   }, [load]);
+
+  useEffect(() => {
+    if (!datasourceId) {
+      setFieldsByTableId({});
+      return;
+    }
+    metadataApi.listTables(datasourceId).then(async (tables) => {
+      const entries = await Promise.all(
+        tables
+          .filter((t) => t.id)
+          .map(async (t) => [t.id!, await metadataApi.listFields(t.id!)] as const),
+      );
+      setFieldsByTableId(Object.fromEntries(entries));
+    });
+  }, [datasourceId]);
+
+  const availableDimensions = useMemo(
+    () => dimensions.filter((d) => d.datasourceId === datasourceId),
+    [dimensions, datasourceId],
+  );
+
+  const dimensionOptions = useMemo(
+    () => availableDimensions.map((d) => ({ label: `${d.name} (${d.code})`, value: d.code })),
+    [availableDimensions],
+  );
+
+  const dimensionByCode = useMemo(
+    () => Object.fromEntries(availableDimensions.map((d) => [d.code, d])),
+    [availableDimensions],
+  );
+
+  const allFieldOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return Object.values(fieldsByTableId)
+      .flat()
+      .filter((f) => {
+        if (seen.has(f.fieldCode)) return false;
+        seen.add(f.fieldCode);
+        return true;
+      })
+      .map((f) => ({ label: `${f.fieldName} (${f.fieldCode})`, value: f.fieldCode }));
+  }, [fieldsByTableId]);
+
+  const queryFilterFieldOptions = useMemo(() => {
+    const metric = metrics.find((m) => m.code === previewCode);
+    return (metric?.dimensions || []).map((d) => ({
+      label: d.fieldName ? `${d.fieldName} (${d.fieldCode})` : d.fieldCode,
+      value: d.fieldCode,
+    }));
+  }, [metrics, previewCode]);
 
   const catalogs = [...new Set(metrics.map((m) => m.catalogCode).filter(Boolean))] as string[];
 
@@ -96,39 +308,43 @@ export default function MetricPage() {
 
   const handlePreviewSql = async (code: string) => {
     const result = await metricApi.previewSql(code);
-    setSqlPreview({ sql: result.sql, columns: result.columns });
+    setSqlPreview(result);
     setPreviewCode(code);
     setSqlModalOpen(true);
   };
 
+  const createDefaultFilterGroup = (metric?: MetricDefinition) => {
+    const defaultField = metric?.dimensions?.[0]?.fieldCode || '';
+    return {
+      conditions: [{ field: defaultField, operator: 'IN', values: '' }],
+    };
+  };
+
   const openQueryPreview = (code: string) => {
     setPreviewCode(code);
+    const metric = metrics.find((m) => m.code === code);
     queryForm.resetFields();
     queryForm.setFieldsValue({
       metricCodes: [code],
-      filters: [{ field: '', operator: 'IN', values: '' }],
+      filterGroups: [createDefaultFilterGroup(metric)],
     });
     setQueryResult(null);
+    setQueryPreviewSql(null);
     setQueryModalOpen(true);
   };
 
   const handleQuery = async () => {
     const values = await queryForm.validateFields();
-    const filters = (values.filters || [])
-      .filter((f: { field?: string; values?: string }) => f.field && f.values)
-      .map((f: { field: string; operator: string; values: string }) => ({
-        field: f.field,
-        operator: f.operator || 'IN',
-        values: f.values.split(',').map((v: string) => v.trim()).filter(Boolean),
-      }));
+    const metricCodes = Array.isArray(values.metricCodes)
+      ? values.metricCodes
+      : [previewCode];
+    const request = buildQueryRequest(metricCodes, values.filterGroups || []);
     setQueryLoading(true);
     try {
-      const result = await metricApi.query({
-        metricCodes: values.metricCodes,
-        filters,
-        pageIndex: 1,
-        pageSize: 50,
-      });
+      const [result] = await Promise.all([
+        metricApi.query({ ...request, pageIndex: 1, pageSize: 50 }),
+        metricApi.previewQuerySql(request).then(setQueryPreviewSql),
+      ]);
       setQueryResult(result);
     } finally {
       setQueryLoading(false);
@@ -303,23 +519,17 @@ export default function MetricPage() {
             {(fields, { add, remove }) => (
               <div style={{ marginTop: 8 }}>
                 {fields.map(({ key, name, ...rest }) => (
-                  <Space key={key} align="baseline" style={{ display: 'flex', marginBottom: 8 }}>
-                    <Form.Item {...rest} name={[name, 'dimensionCode']} rules={[{ required: true }]}>
-                      <Input placeholder="维度编码" style={{ width: 120 }} />
-                    </Form.Item>
-                    <Form.Item {...rest} name={[name, 'fieldCode']} rules={[{ required: true }]}>
-                      <Input placeholder="物理字段" style={{ width: 120 }} />
-                    </Form.Item>
-                    <Form.Item {...rest} name={[name, 'fieldName']}>
-                      <Input placeholder="展示名" style={{ width: 100 }} />
-                    </Form.Item>
-                    <Form.Item {...rest} name={[name, 'sort']}>
-                      <Input placeholder="排序" style={{ width: 60 }} />
-                    </Form.Item>
-                    <Button type="link" danger onClick={() => remove(name)}>
-                      删除
-                    </Button>
-                  </Space>
+                  <DimensionBindingFields
+                    key={key}
+                    form={form}
+                    name={name}
+                    rest={rest}
+                    dimensionOptions={dimensionOptions}
+                    dimensionByCode={dimensionByCode}
+                    fieldsByTableId={fieldsByTableId}
+                    allFieldOptions={allFieldOptions}
+                    onRemove={() => remove(name)}
+                  />
                 ))}
                 <Button type="dashed" onClick={() => add()} block>
                   添加维度绑定
@@ -335,25 +545,14 @@ export default function MetricPage() {
         open={sqlModalOpen}
         onCancel={() => setSqlModalOpen(false)}
         footer={null}
-        width={720}
+        width={800}
+        styles={{ body: { maxHeight: '70vh', overflow: 'auto' } }}
       >
         {sqlPreview && (
-          <>
-            <Typography.Paragraph type="secondary">
-              列: {sqlPreview.columns.join(', ')}
-            </Typography.Paragraph>
-            <pre
-              style={{
-                background: '#f6f8fa',
-                padding: 16,
-                borderRadius: 6,
-                overflow: 'auto',
-                fontSize: 13,
-              }}
-            >
-              {sqlPreview.sql}
-            </pre>
-          </>
+          <SqlPreviewBlock
+            sql={sqlPreview.sql}
+            meta={`列: ${formatSqlColumns(sqlPreview.columns)}`}
+          />
         )}
       </Modal>
 
@@ -375,43 +574,160 @@ export default function MetricPage() {
           <Form.Item name="metricCodes" hidden>
             <Input />
           </Form.Item>
-          <Form.List name="filters">
-            {(fields, { add, remove }) => (
+          <Form.List name="filterGroups">
+            {(groups, { add: addGroup, remove: removeGroup }) => (
               <>
                 <Typography.Text strong>过滤条件</Typography.Text>
-                {fields.map(({ key, name, ...rest }) => (
-                  <Space key={key} align="baseline" style={{ display: 'flex', marginTop: 8 }}>
-                    <Form.Item {...rest} name={[name, 'field']} label={name === 0 ? '字段' : ''}>
-                      <Input placeholder="dept_code" style={{ width: 140 }} />
-                    </Form.Item>
-                    <Form.Item {...rest} name={[name, 'operator']} label={name === 0 ? '运算符' : ''}>
-                      <Select
-                        style={{ width: 100 }}
-                        options={['IN', 'EQ', 'GT', 'LT', 'GTE', 'LTE'].map((o) => ({
-                          label: o,
-                          value: o,
-                        }))}
-                      />
-                    </Form.Item>
-                    <Form.Item
-                      {...rest}
-                      name={[name, 'values']}
-                      label={name === 0 ? '值（逗号分隔）' : ''}
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 12, fontSize: 13 }}>
+                  组内条件以「且」组合，多个条件组之间以「或」组合
+                </Typography.Paragraph>
+                {groups.map((group, groupIndex) => (
+                  <div key={group.key}>
+                    {groupIndex > 0 && (
+                      <div
+                        style={{
+                          textAlign: 'center',
+                          margin: '8px 0',
+                          color: '#1677ff',
+                          fontWeight: 500,
+                        }}
+                      >
+                        或
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        border: '1px solid #d9d9d9',
+                        borderRadius: 6,
+                        padding: 12,
+                        marginBottom: 8,
+                        background: '#fafafa',
+                      }}
                     >
-                      <Input placeholder="001,002" style={{ width: 180 }} />
-                    </Form.Item>
-                    <Button type="link" danger onClick={() => remove(name)}>
-                      删除
-                    </Button>
-                  </Space>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: 8,
+                        }}
+                      >
+                        <Typography.Text type="secondary">条件组 {groupIndex + 1}</Typography.Text>
+                        {groups.length > 1 && (
+                          <Button type="link" danger size="small" onClick={() => removeGroup(group.name)}>
+                            删除条件组
+                          </Button>
+                        )}
+                      </div>
+                      <Form.List name={[group.name, 'conditions']}>
+                        {(conditions, { add: addCond, remove: removeCond }) => (
+                          <>
+                            {conditions.map((cond, condIndex) => (
+                              <div key={cond.key}>
+                                {condIndex > 0 && (
+                                  <Typography.Text
+                                    type="secondary"
+                                    style={{ display: 'block', margin: '4px 0 4px 4px' }}
+                                  >
+                                    且
+                                  </Typography.Text>
+                                )}
+                                <Space align="baseline" style={{ display: 'flex' }}>
+                                  <Form.Item
+                                    {...cond}
+                                    name={[cond.name, 'field']}
+                                    label={condIndex === 0 ? '字段' : ''}
+                                  >
+                                    <Select
+                                      placeholder="选择字段"
+                                      style={{ width: 160 }}
+                                      showSearch
+                                      optionFilterProp="label"
+                                      options={queryFilterFieldOptions}
+                                    />
+                                  </Form.Item>
+                                  <Form.Item
+                                    {...cond}
+                                    name={[cond.name, 'operator']}
+                                    label={condIndex === 0 ? '运算符' : ''}
+                                  >
+                                    <Select
+                                      style={{ width: 100 }}
+                                      options={['IN', 'EQ', 'GT', 'LT', 'GTE', 'LTE'].map((o) => ({
+                                        label: o,
+                                        value: o,
+                                      }))}
+                                    />
+                                  </Form.Item>
+                                  <Form.Item
+                                    {...cond}
+                                    name={[cond.name, 'values']}
+                                    label={condIndex === 0 ? '值（逗号分隔）' : ''}
+                                  >
+                                    <Input placeholder="001,002" style={{ width: 180 }} />
+                                  </Form.Item>
+                                  <Button
+                                    type="link"
+                                    danger
+                                    onClick={() => removeCond(cond.name)}
+                                    disabled={conditions.length === 1}
+                                  >
+                                    删除
+                                  </Button>
+                                </Space>
+                              </div>
+                            ))}
+                            <Button
+                              type="dashed"
+                              size="small"
+                              onClick={() =>
+                                addCond({
+                                  field: queryFilterFieldOptions[0]?.value || '',
+                                  operator: 'IN',
+                                  values: '',
+                                })
+                              }
+                              style={{ marginTop: 8 }}
+                            >
+                              添加条件
+                            </Button>
+                          </>
+                        )}
+                      </Form.List>
+                    </div>
+                  </div>
                 ))}
-                <Button type="dashed" onClick={() => add()} style={{ marginTop: 8 }}>
-                  添加过滤条件
+                <Button
+                  type="dashed"
+                  onClick={() => addGroup(createDefaultFilterGroup(metrics.find((m) => m.code === previewCode)))}
+                  block
+                >
+                  添加条件组
                 </Button>
               </>
             )}
           </Form.List>
         </Form>
+        <div style={{ marginTop: 16 }}>
+          <Typography.Text strong>预览 SQL</Typography.Text>
+          <Spin spinning={querySqlLoading}>
+            {queryPreviewSql ? (
+              <SqlPreviewBlock
+                sql={queryPreviewSql.sql}
+                meta={`数据源: ${queryPreviewSql.datasourceId}${
+                  formatSqlColumns(queryPreviewSql.columns)
+                    ? ` · 列: ${formatSqlColumns(queryPreviewSql.columns)}`
+                    : ''
+                }`}
+                maxHeight={200}
+              />
+            ) : (
+              <Typography.Paragraph type="secondary" style={{ margin: '8px 0 0', fontSize: 13 }}>
+                {querySqlLoading ? '正在生成 SQL...' : '调整过滤条件后将自动生成 SQL'}
+              </Typography.Paragraph>
+            )}
+          </Spin>
+        </div>
         {queryResult && (
           <div style={{ marginTop: 16 }}>
             <Typography.Text type="secondary">共 {queryResult.total} 条</Typography.Text>

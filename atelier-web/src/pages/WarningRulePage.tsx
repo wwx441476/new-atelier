@@ -16,6 +16,7 @@ import {
 import { EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageHeader from '../components/PageHeader';
+import SqlPreviewBlock from '../components/SqlPreviewBlock';
 import { warningApi } from '../api/warning';
 import { metricApi } from '../api/metric';
 import type { MetricDefinition, WarningRule, WarningRulePreviewResult } from '../api/types';
@@ -223,6 +224,12 @@ export default function WarningRulePage() {
           表达式: {previewResult?.expression || previewRule?.expression} · 本页触发{' '}
           {previewResult?.matchedCount ?? 0} 条
         </Typography.Paragraph>
+        {previewResult?.sql && (
+          <div style={{ marginBottom: 16 }}>
+            <Typography.Text strong>预警 SQL</Typography.Text>
+            <SqlPreviewBlock sql={previewResult.sql} maxHeight={180} />
+          </div>
+        )}
         <Table
           rowKey={(_, i) => String(i)}
           size="small"
