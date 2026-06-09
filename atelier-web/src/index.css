@@ -30,3 +30,7 @@ body {
   gap: 12px;
   flex-wrap: wrap;
 }
+
+.guide-menu-pending.ant-menu-item:not(.ant-menu-item-selected) {
+  background: rgba(22, 119, 255, 0.12) !important;
+}

@@ -15,7 +15,9 @@ import {
 } from 'antd';
 import { EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import GuidePageShell from '../components/GuidePageShell';
 import PageHeader from '../components/PageHeader';
+import { useTutorialDemo } from '../guide/useTutorialDemo';
 import SqlPreviewBlock from '../components/SqlPreviewBlock';
 import { warningApi } from '../api/warning';
 import { metricApi } from '../api/metric';
@@ -28,6 +30,16 @@ export default function WarningRulePage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<WarningRule | null>(null);
   const [form] = Form.useForm<WarningRule>();
+
+  const { onSaveSuccess } = useTutorialDemo('warning-rules', async (outcome) => {
+    if (outcome.type !== 'form') {
+      return;
+    }
+    setEditing(null);
+    form.resetFields();
+    form.setFieldsValue(outcome.values as unknown as WarningRule);
+    setModalOpen(true);
+  });
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewRule, setPreviewRule] = useState<WarningRule | null>(null);
@@ -75,6 +87,7 @@ export default function WarningRulePage() {
     message.success('预警规则已保存');
     setModalOpen(false);
     load();
+    onSaveSuccess();
   };
 
   const metricOptions = metrics.map((m) => ({
@@ -200,18 +213,20 @@ export default function WarningRulePage() {
           <Button icon={<ReloadOutlined />} onClick={load}>
             刷新
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          <Button id="guide-primary-action" type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             新建规则
           </Button>
         </Space>
       </div>
-      <Table
-        rowKey="id"
-        loading={loading}
-        columns={columns}
-        dataSource={rules}
-        pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-      />
+      <GuidePageShell>
+        <Table
+          rowKey="id"
+          loading={loading}
+          columns={columns}
+          dataSource={rules}
+          pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
+        />
+      </GuidePageShell>
 
       <Modal
         title={`数据预览 — ${previewRule?.name || ''}`}

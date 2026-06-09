@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Layout, Menu, theme, Typography } from 'antd';
+import OnboardingGuide, { OnboardingHeaderActions } from '../components/OnboardingGuide';
+import { ONBOARDING_STEPS } from '../guide/steps';
+import { useOnboarding } from '../guide/OnboardingContext';
 import {
   DatabaseOutlined,
   TableOutlined,
@@ -11,19 +14,29 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 const { Header, Sider, Content } = Layout;
 
-const menuItems = [
-  { key: '/datasources', icon: <DatabaseOutlined />, label: '数据源管理' },
-  { key: '/metadata', icon: <TableOutlined />, label: '元数据管理' },
-  { key: '/dimensions', icon: <PartitionOutlined />, label: '维度管理' },
-  { key: '/metrics', icon: <LineChartOutlined />, label: '指标管理' },
-  { key: '/warning-rules', icon: <AlertOutlined />, label: '预警规则' },
-];
+const menuIcons: Record<string, ReactNode> = {
+  '/datasources': <DatabaseOutlined />,
+  '/metadata': <TableOutlined />,
+  '/dimensions': <PartitionOutlined />,
+  '/metrics': <LineChartOutlined />,
+  '/warning-rules': <AlertOutlined />,
+};
 
-export default function AdminLayout() {
+function AdminLayoutInner() {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = theme.useToken();
+  const { storage } = useOnboarding();
+
+  const menuItems = ONBOARDING_STEPS.map((step) => ({
+    key: step.path,
+    icon: menuIcons[step.path],
+    label: step.menuLabel,
+    className: storage.guideActive && !storage.completedSteps.includes(step.id)
+      ? `guide-menu-pending guide-menu-${step.id}`
+      : `guide-menu-${step.id}`,
+  }));
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -80,10 +93,13 @@ export default function AdminLayout() {
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between',
           }}
         >
           <Typography.Text type="secondary">new-atelier 管理控制台</Typography.Text>
+          <OnboardingHeaderActions />
         </Header>
+        <OnboardingGuide />
         <Content style={{ margin: 24 }}>
           <div
             style={{
@@ -100,4 +116,8 @@ export default function AdminLayout() {
       </Layout>
     </Layout>
   );
+}
+
+export default function AdminLayout() {
+  return <AdminLayoutInner />;
 }

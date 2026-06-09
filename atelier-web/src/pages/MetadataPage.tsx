@@ -14,7 +14,10 @@ import {
 } from 'antd';
 import { CodeOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import GuidePageShell from '../components/GuidePageShell';
 import PageHeader from '../components/PageHeader';
+import { buildMetadataFieldDemo, ORDER_FIELDS } from '../guide/demoTutorial';
+import { useTutorialDemo } from '../guide/useTutorialDemo';
 import SqlPreviewBlock from '../components/SqlPreviewBlock';
 import { metadataApi } from '../api/metadata';
 import { datasourceApi } from '../api/datasource';
@@ -54,6 +57,24 @@ export default function MetadataPage() {
   const [schemaOptions, setSchemaOptions] = useState<DbSchemaInfo[]>([]);
   const [schemaLoading, setSchemaLoading] = useState(false);
 
+  const { tutorialChain, setTutorialChain, onSaveSuccess } = useTutorialDemo(
+    'metadata',
+    async (outcome) => {
+      if (outcome.type !== 'form') {
+        return;
+      }
+      setEditingTable(null);
+      tableForm.resetFields();
+      const values = outcome.values as unknown as MetaTable;
+      tableForm.setFieldsValue(values);
+      if (values.datasourceId) {
+        setFilterDs(values.datasourceId);
+        await loadSchemaOptions(values.datasourceId);
+      }
+      setTableModalOpen(true);
+    },
+  );
+
   const loadTables = useCallback(async () => {
     setLoading(true);
     try {
@@ -74,6 +95,21 @@ export default function MetadataPage() {
   useEffect(() => {
     loadTables();
   }, [loadTables]);
+
+  useEffect(() => {
+    if (!tutorialChain || tutorialChain.kind !== 'metadata-fields') {
+      return;
+    }
+    const field = tutorialChain.fields[tutorialChain.index];
+    if (!field) {
+      return;
+    }
+    setCurrentTableId(tutorialChain.tableId);
+    setEditingField(null);
+    fieldForm.resetFields();
+    fieldForm.setFieldsValue(buildMetadataFieldDemo(field));
+    setFieldModalOpen(true);
+  }, [tutorialChain, fieldForm]);
 
   const loadFields = async (tableId: string) => {
     const fields = await metadataApi.listFields(tableId);
@@ -121,7 +157,21 @@ export default function MetadataPage() {
     await metadataApi.saveTable(values);
     message.success('元数据表已保存');
     setTableModalOpen(false);
-    loadTables();
+    await loadTables();
+    if (!editingTable) {
+      const tables = await metadataApi.listTables(values.datasourceId);
+      const saved = tables.find((item) => item.tableCode === values.tableCode);
+      if (saved?.id) {
+        setTutorialChain({
+          kind: 'metadata-fields',
+          tableId: saved.id,
+          fields: ORDER_FIELDS,
+          index: 0,
+        });
+        return;
+      }
+    }
+    onSaveSuccess();
   };
 
   const openCreateField = (tableId: string) => {
@@ -201,6 +251,18 @@ export default function MetadataPage() {
     message.success('字段已保存');
     setFieldModalOpen(false);
     loadFields(currentTableId);
+    if (tutorialChain?.kind === 'metadata-fields') {
+      const nextIndex = tutorialChain.index + 1;
+      if (nextIndex < tutorialChain.fields.length) {
+        setTutorialChain({
+          ...tutorialChain,
+          index: nextIndex,
+        });
+        return;
+      }
+      setTutorialChain(null);
+    }
+    onSaveSuccess();
   };
 
   const tableColumns: ColumnsType<MetaTable> = [
@@ -301,6 +363,7 @@ export default function MetadataPage() {
       <div className="page-toolbar">
         <div className="page-toolbar-left">
           <Select
+            id="guide-filter"
             allowClear
             placeholder="按数据源筛选"
             style={{ width: 220 }}
@@ -313,17 +376,18 @@ export default function MetadataPage() {
           <Button icon={<ReloadOutlined />} onClick={loadTables}>
             刷新
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateTable}>
+          <Button id="guide-primary-action" type="primary" icon={<PlusOutlined />} onClick={openCreateTable}>
             新建元数据表
           </Button>
         </Space>
       </div>
-      <Table
-        rowKey="id"
-        loading={loading}
-        columns={tableColumns}
-        dataSource={tables}
-        expandable={{
+      <GuidePageShell>
+        <Table
+          rowKey="id"
+          loading={loading}
+          columns={tableColumns}
+          dataSource={tables}
+          expandable={{
           onExpand: (expanded, record) => {
             if (expanded && record.id) {
               loadFields(record.id);
@@ -353,7 +417,8 @@ export default function MetadataPage() {
           ),
         }}
         pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-      />
+        />
+      </GuidePageShell>
 
       <Modal
         title={editingTable ? '编辑元数据表' : '新建元数据表'}

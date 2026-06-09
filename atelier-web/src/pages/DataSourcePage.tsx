@@ -14,7 +14,9 @@ import {
 } from 'antd';
 import { PlusOutlined, ReloadOutlined, ApiOutlined, DatabaseOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import GuidePageShell from '../components/GuidePageShell';
 import PageHeader from '../components/PageHeader';
+import { useTutorialDemo } from '../guide/useTutorialDemo';
 import DatabaseBrowseModal from '../components/DatabaseBrowseModal';
 import { datasourceApi } from '../api/datasource';
 import type { DataSourceRequest, DataSourceResponse } from '../api/types';
@@ -32,6 +34,17 @@ export default function DataSourcePage() {
   const [editing, setEditing] = useState<DataSourceResponse | null>(null);
   const [initialEditDbType, setInitialEditDbType] = useState<string | null>(null);
   const [form] = Form.useForm<DataSourceRequest>();
+
+  const { onSaveSuccess } = useTutorialDemo('datasources', async (outcome) => {
+    if (outcome.type !== 'form') {
+      return;
+    }
+    setEditing(null);
+    setInitialEditDbType(null);
+    form.resetFields();
+    form.setFieldsValue(outcome.values as unknown as DataSourceRequest);
+    setModalOpen(true);
+  });
 
   const dbType = Form.useWatch('dbType', form);
   const jdbcUrlPlaceholder = getJdbcTemplate(dbType);
@@ -93,6 +106,7 @@ export default function DataSourcePage() {
     message.success(editing ? '数据源已更新' : '数据源已创建');
     setModalOpen(false);
     load();
+    onSaveSuccess();
   };
 
   const handleTest = async () => {
@@ -191,19 +205,21 @@ export default function DataSourcePage() {
           <Button icon={<ReloadOutlined />} onClick={load}>
             刷新
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          <Button id="guide-primary-action" type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             新建数据源
           </Button>
         </Space>
       </div>
-      <Table
-        rowKey="id"
-        loading={loading}
-        columns={columns}
-        dataSource={data}
-        scroll={{ x: 900 }}
-        pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-      />
+      <GuidePageShell>
+        <Table
+          rowKey="id"
+          loading={loading}
+          columns={columns}
+          dataSource={data}
+          scroll={{ x: 900 }}
+          pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
+        />
+      </GuidePageShell>
       <Modal
         title={editing ? '编辑数据源' : '新建数据源'}
         open={modalOpen}

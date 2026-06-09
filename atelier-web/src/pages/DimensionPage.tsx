@@ -17,7 +17,10 @@ import {
 } from 'antd';
 import { CalendarOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import GuidePageShell from '../components/GuidePageShell';
 import PageHeader from '../components/PageHeader';
+import { buildDimensionValueDemo, TUTORIAL } from '../guide/demoTutorial';
+import { useTutorialDemo } from '../guide/useTutorialDemo';
 import { dimensionApi } from '../api/dimension';
 import { datasourceApi } from '../api/datasource';
 import { metadataApi } from '../api/metadata';
@@ -118,6 +121,23 @@ export default function DimensionPage() {
   const [valuesMap, setValuesMap] = useState<Record<string, DimensionValue[]>>({});
   const [dimForm] = Form.useForm<DimensionFormValues>();
   const [valueForm] = Form.useForm<DimensionValue>();
+
+  const { tutorialChain, setTutorialChain, onSaveSuccess } = useTutorialDemo(
+    'dimensions',
+    async (outcome) => {
+      if (outcome.type !== 'form') {
+        return;
+      }
+      setEditingDim(null);
+      dimForm.resetFields();
+      dimForm.setFieldsValue(outcome.values as unknown as DimensionFormValues);
+      const dsId = (outcome.values as unknown as Dimension).datasourceId;
+      if (dsId) {
+        await loadMetaTables(dsId);
+      }
+      setDimModalOpen(true);
+    },
+  );
   const [timeGenForm] = Form.useForm<TimeGenerateFormValues>();
   const valueSource = Form.useWatch('valueSource', dimForm);
   const dimType = Form.useWatch('type', dimForm);
@@ -173,6 +193,21 @@ export default function DimensionPage() {
     }
   }, [dimModalOpen, metaTableId]);
 
+  useEffect(() => {
+    if (!tutorialChain || tutorialChain.kind !== 'dimension-values') {
+      return;
+    }
+    const value = tutorialChain.values[tutorialChain.index];
+    if (!value) {
+      return;
+    }
+    setCurrentDimId(tutorialChain.dimensionId);
+    setEditingValue(null);
+    valueForm.resetFields();
+    valueForm.setFieldsValue(buildDimensionValueDemo(value));
+    setValueModalOpen(true);
+  }, [tutorialChain, valueForm]);
+
   const loadValues = async (dimId: string) => {
     const values = await dimensionApi.listValues(dimId);
     setValuesMap((prev) => ({ ...prev, [dimId]: values }));
@@ -226,10 +261,23 @@ export default function DimensionPage() {
     if (payload.valueSource === 'TABLE') {
       payload.fields = buildFieldsFromMapping(values);
     }
-    await dimensionApi.save(payload);
+    const saved = await dimensionApi.save(payload);
     message.success('维度已保存');
     setDimModalOpen(false);
     load();
+    if (saved.id && payload.code === TUTORIAL.deptDimCode) {
+      setTutorialChain({
+        kind: 'dimension-values',
+        dimensionId: saved.id,
+        values: [
+          { code: '001', name: '销售部', sort: 1 },
+          { code: '002', name: '研发部', sort: 2 },
+        ],
+        index: 0,
+      });
+      return;
+    }
+    onSaveSuccess();
   };
 
   const openCreateValue = (dimId: string) => {
@@ -352,6 +400,18 @@ export default function DimensionPage() {
     message.success('维度值已保存');
     setValueModalOpen(false);
     loadValues(currentDimId);
+    if (tutorialChain?.kind === 'dimension-values') {
+      const nextIndex = tutorialChain.index + 1;
+      if (nextIndex < tutorialChain.values.length) {
+        setTutorialChain({
+          ...tutorialChain,
+          index: nextIndex,
+        });
+        return;
+      }
+      setTutorialChain(null);
+    }
+    onSaveSuccess();
   };
 
   const dimColumns: ColumnsType<Dimension> = [
@@ -454,17 +514,18 @@ export default function DimensionPage() {
           <Button icon={<ReloadOutlined />} onClick={load}>
             刷新
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDim}>
+          <Button id="guide-primary-action" type="primary" icon={<PlusOutlined />} onClick={openCreateDim}>
             新建维度
           </Button>
         </Space>
       </div>
-      <Table
-        rowKey="id"
-        loading={loading}
-        columns={dimColumns}
-        dataSource={dimensions}
-        expandable={{
+      <GuidePageShell>
+        <Table
+          rowKey="id"
+          loading={loading}
+          columns={dimColumns}
+          dataSource={dimensions}
+          expandable={{
           onExpand: (expanded, record) => {
             if (expanded && record.id) {
               loadValues(record.id);
@@ -519,7 +580,8 @@ export default function DimensionPage() {
           },
         }}
         pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-      />
+        />
+      </GuidePageShell>
 
       <Modal
         title={editingDim ? '编辑维度' : '新建维度'}

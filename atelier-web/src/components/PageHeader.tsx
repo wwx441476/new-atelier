@@ -7,7 +7,7 @@ interface PageHeaderProps {
 
 export default function PageHeader({ title, description }: PageHeaderProps) {
   return (
-    <div style={{ marginBottom: 20 }}>
+    <div id="guide-page-header" style={{ marginBottom: 20 }}>
       <Typography.Title level={4} style={{ margin: 0 }}>
         {title}
       </Typography.Title>

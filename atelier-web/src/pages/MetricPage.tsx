@@ -15,7 +15,9 @@ import {
 } from 'antd';
 import { PlusOutlined, ReloadOutlined, CodeOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import GuidePageShell from '../components/GuidePageShell';
 import PageHeader from '../components/PageHeader';
+import { useTutorialDemo } from '../guide/useTutorialDemo';
 import SqlPreviewBlock from '../components/SqlPreviewBlock';
 import { metricApi } from '../api/metric';
 import { datasourceApi } from '../api/datasource';
@@ -185,6 +187,16 @@ export default function MetricPage() {
   const [dimensions, setDimensions] = useState<Dimension[]>([]);
   const [fieldsByTableId, setFieldsByTableId] = useState<Record<string, MetaTableField[]>>({});
   const [form] = Form.useForm<MetricDefinition>();
+
+  const { onSaveSuccess } = useTutorialDemo('metrics', async (outcome) => {
+    if (outcome.type !== 'form') {
+      return;
+    }
+    setEditing(null);
+    form.resetFields();
+    form.setFieldsValue(outcome.values as unknown as MetricDefinition);
+    setModalOpen(true);
+  });
   const [queryForm] = Form.useForm();
   const queryFilterGroups = Form.useWatch('filterGroups', queryForm);
   const metricType = Form.useWatch('type', form);
@@ -304,6 +316,7 @@ export default function MetricPage() {
     message.success('指标已保存');
     setModalOpen(false);
     load();
+    onSaveSuccess();
   };
 
   const handlePreviewSql = async (code: string) => {
@@ -437,19 +450,21 @@ export default function MetricPage() {
           <Button icon={<ReloadOutlined />} onClick={load}>
             刷新
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          <Button id="guide-primary-action" type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             新建指标
           </Button>
         </Space>
       </div>
-      <Table
-        rowKey="code"
-        loading={loading}
-        columns={columns}
-        dataSource={filtered}
-        scroll={{ x: 1000 }}
-        pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-      />
+      <GuidePageShell>
+        <Table
+          rowKey="code"
+          loading={loading}
+          columns={columns}
+          dataSource={filtered}
+          scroll={{ x: 1000 }}
+          pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
+        />
+      </GuidePageShell>
 
       <Modal
         title={editing ? '编辑指标' : '新建指标'}
