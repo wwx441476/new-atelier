@@ -15,6 +15,11 @@ Thumbs.db
 # Logs
 *.log
 
+# Environment
+.env
+.env.*
+!.env.example
+
 # Frontend (atelier-web)
 atelier-web/node_modules/
 atelier-web/dist/
