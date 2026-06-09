@@ -83,10 +83,10 @@ cleanup() {
 }
 
 wait_for_backend() {
-  local url="http://localhost:${BACKEND_PORT}/api/v2/datasources"
+  local url="http://127.0.0.1:${BACKEND_PORT}/api/v2/datasources"
   echo -n "等待后端就绪"
   for _ in $(seq 1 90); do
-    if curl -sf "$url" >/dev/null 2>&1; then
+    if curl -sf --noproxy '*' "$url" >/dev/null 2>&1; then
       echo " OK"
       return 0
     fi
