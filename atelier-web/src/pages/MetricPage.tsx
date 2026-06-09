@@ -34,6 +34,7 @@ import type {
   QueryResult,
   SqlPreviewResult,
 } from '../api/types';
+import { buildFilterRequest, createDefaultFilterGroup, type FilterGroupForm } from '../utils/queryFilters';
 
 const METRIC_TYPES: { label: string; value: MetricType }[] = [
   { label: '表指标', value: 'TABLE' },
@@ -43,30 +44,13 @@ const METRIC_TYPES: { label: string; value: MetricType }[] = [
 
 const AGGREGATIONS: AggregationType[] = ['NONE', 'SUM', 'COUNT', 'AVG', 'MAX', 'MIN'];
 
-type QueryFilterGroupForm = {
-  conditions?: Array<{ field?: string; operator?: string; values?: string }>;
-};
-
 function buildQueryRequest(
   metricCodes: string[],
-  filterGroups: QueryFilterGroupForm[],
+  filterGroups: FilterGroupForm[],
 ): MetricQueryRequest {
-  const groups = (filterGroups || [])
-    .map((group) => ({
-      conditions: (group.conditions || [])
-        .filter((c) => c.field && c.values)
-        .map((c) => ({
-          field: c.field!,
-          operator: c.operator || 'IN',
-          values: c.values!.split(',').map((v) => v.trim()).filter(Boolean),
-        })),
-    }))
-    .filter((group) => group.conditions.length > 0);
-  const flatFilters = groups.length === 1 ? groups[0].conditions : undefined;
   return {
     metricCodes,
-    filterGroups: groups.length > 1 ? groups : undefined,
-    filters: flatFilters,
+    ...buildFilterRequest(filterGroups),
   };
 }
 
@@ -326,12 +310,8 @@ export default function MetricPage() {
     setSqlModalOpen(true);
   };
 
-  const createDefaultFilterGroup = (metric?: MetricDefinition) => {
-    const defaultField = metric?.dimensions?.[0]?.fieldCode || '';
-    return {
-      conditions: [{ field: defaultField, operator: 'IN', values: '' }],
-    };
-  };
+  const createMetricFilterGroup = (metric?: MetricDefinition) =>
+    createDefaultFilterGroup(metric?.dimensions?.[0]?.fieldCode || '');
 
   const openQueryPreview = (code: string) => {
     setPreviewCode(code);
@@ -339,7 +319,7 @@ export default function MetricPage() {
     queryForm.resetFields();
     queryForm.setFieldsValue({
       metricCodes: [code],
-      filterGroups: [createDefaultFilterGroup(metric)],
+      filterGroups: [createMetricFilterGroup(metric)],
     });
     setQueryResult(null);
     setQueryPreviewSql(null);
@@ -714,7 +694,7 @@ export default function MetricPage() {
                 ))}
                 <Button
                   type="dashed"
-                  onClick={() => addGroup(createDefaultFilterGroup(metrics.find((m) => m.code === previewCode)))}
+                  onClick={() => addGroup(createMetricFilterGroup(metrics.find((m) => m.code === previewCode)))}
                   block
                 >
                   添加条件组

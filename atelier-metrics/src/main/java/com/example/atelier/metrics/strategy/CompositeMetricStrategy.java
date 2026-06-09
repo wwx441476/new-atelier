@@ -5,7 +5,6 @@ import com.example.atelier.domain.metric.MetricDefinition;
 import com.example.atelier.domain.metric.MetricType;
 import com.example.atelier.metrics.compiler.CompileContext;
 import com.example.atelier.metrics.compiler.SqlFragments;
-import com.example.atelier.metrics.compiler.WhereClauseBuilder;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -59,12 +58,11 @@ public class CompositeMetricStrategy implements MetricCompileStrategy {
             }
         }
 
-        String whereClause = WhereClauseBuilder.resolve(context.getFilters(), context.getFilterGroups());
-
+        // 过滤条件已在依赖指标子查询中应用；外层 JOIN 结果含多表同名字段，不可再裸写 fieldCode
         return SqlFragments.builder()
                 .selectClause(String.join(", ", selectParts))
                 .fromClause(from.toString())
-                .whereClause(whereClause)
+                .whereClause("")
                 .groupByClause("")
                 .build();
     }

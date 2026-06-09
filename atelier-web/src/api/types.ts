@@ -71,6 +71,9 @@ export interface MetaTable {
 
 export interface MetaTableDdlResult {
   ddl: string;
+  alterDdl?: string;
+  missingFieldCodes?: string[];
+  syncNeeded?: boolean;
   tableExists: boolean;
   datasourceId: string;
   tableCode: string;
@@ -207,6 +210,17 @@ export interface SqlPreviewResult {
   columns: string[] | Record<string, string>;
 }
 
+export interface ExpressionValidateResult {
+  valid: boolean;
+  normalizedExpression?: string;
+  usedVariables?: string[];
+  unknownVariables?: string[];
+  unusedMetrics?: string[];
+  message?: string;
+  sampleEvaluated?: boolean;
+  sampleTriggered?: boolean;
+}
+
 export interface WarningRule {
   id?: string;
   catalogCode?: string;
@@ -218,6 +232,13 @@ export interface WarningRule {
   warningLevel?: number;
   notifyConfig?: string;
   comments?: string;
+}
+
+export interface WarningRulePreviewRequest {
+  pageIndex?: number;
+  pageSize?: number;
+  filters?: FilterConditionDto[];
+  filterGroups?: FilterGroupDto[];
 }
 
 export interface WarningRulePreviewResult {

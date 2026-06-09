@@ -31,6 +31,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Locale;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -110,9 +113,10 @@ public class MetadataServiceImpl implements MetadataService {
         if (field.getTableId() == null) {
             throw new AtelierException("tableId 不能为空");
         }
-        MetaTableFieldEntity entity = field.getId() != null
-                ? fieldRepository.findById(field.getId()).orElse(newFieldEntity(field))
-                : newFieldEntity(field);
+        boolean creating = field.getId() == null;
+        MetaTableFieldEntity entity = creating
+                ? newFieldEntity(field)
+                : fieldRepository.findById(field.getId()).orElse(newFieldEntity(field));
         entity.setPkMetaTable(field.getTableId());
         entity.setFieldCode(field.getFieldCode());
         entity.setFieldName(field.getFieldName());
@@ -120,8 +124,43 @@ public class MetadataServiceImpl implements MetadataService {
         entity.setFieldLength(field.getFieldLength());
         entity.setFieldPrecision(field.getFieldPrecision());
         entity.setNullable(field.getNullable() != null && field.getNullable() ? 1 : 0);
-        entity.setSortNo(field.getSort());
+        if (creating) {
+            int insertSort = resolveInsertSort(field);
+            shiftSortForInsert(field.getTableId(), insertSort);
+            entity.setSortNo(insertSort);
+        } else {
+            entity.setSortNo(field.getSort());
+        }
         return toField(fieldRepository.save(entity));
+    }
+
+    private int resolveInsertSort(MetaTableField field) {
+        if (field.getSort() != null) {
+            return field.getSort();
+        }
+        return nextSortNo(field.getTableId());
+    }
+
+    private int nextSortNo(String tableId) {
+        int max = 0;
+        for (MetaTableFieldEntity existing : fieldRepository.findByPkMetaTableOrderBySortNoAsc(tableId)) {
+            if (existing.getSortNo() != null && existing.getSortNo() > max) {
+                max = existing.getSortNo();
+            }
+        }
+        return max + 1;
+    }
+
+    /** 为新字段腾出排序位：sortNo >= insertSort 的已有字段顺延 +1 */
+    private void shiftSortForInsert(String tableId, int insertSort) {
+        List<MetaTableFieldEntity> fields = fieldRepository.findByPkMetaTableOrderBySortNoAsc(tableId);
+        for (int i = fields.size() - 1; i >= 0; i--) {
+            MetaTableFieldEntity existing = fields.get(i);
+            if (existing.getSortNo() != null && existing.getSortNo() >= insertSort) {
+                existing.setSortNo(existing.getSortNo() + 1);
+                fieldRepository.save(existing);
+            }
+        }
     }
 
     @Override
@@ -174,18 +213,64 @@ public class MetadataServiceImpl implements MetadataService {
         String ddl = TableDdlBuilder.build(dbType, schemaCode, tableCode, fields);
 
         boolean tableExists = false;
+        List<MetaTableField> missingFields = Collections.emptyList();
+        List<String> alterStatements = Collections.emptyList();
         try (Connection connection = dataSourceRegistry.getConnection(datasourceId)) {
             tableExists = physicalTableExists(connection, schemaCode, tableCode);
+            if (tableExists) {
+                Set<String> physicalColumns = listPhysicalColumnNames(connection, schemaCode, tableCode);
+                missingFields = findMissingFields(fields, physicalColumns);
+                if (!missingFields.isEmpty()) {
+                    alterStatements = TableDdlBuilder.buildAddColumnStatements(
+                            dbType, schemaCode, tableCode, missingFields);
+                }
+            }
         } catch (Exception e) {
             throw new AtelierException("检查物理表是否存在失败: " + e.getMessage(), e);
         }
 
+        String alterDdl = alterStatements.isEmpty() ? null : String.join(";\n", alterStatements);
+        List<String> missingFieldCodes = missingFields.stream()
+                .map(MetaTableField::getFieldCode)
+                .collect(Collectors.toList());
+
         return MetaTableDdlResult.builder()
                 .ddl(ddl)
+                .alterDdl(alterDdl)
+                .missingFieldCodes(missingFieldCodes)
+                .syncNeeded(!missingFields.isEmpty())
                 .tableExists(tableExists)
                 .datasourceId(datasourceId)
                 .tableCode(tableCode)
                 .build();
+    }
+
+    @Override
+    public void executeSyncTable(String tableId) {
+        MetaTableEntity entity = resolveTableEntity(tableId)
+                .orElseThrow(() -> new AtelierException("元数据表不存在: " + tableId));
+        MetaTableDdlResult preview = buildCreateTableDdl(tableId);
+        if (!preview.isTableExists()) {
+            throw new AtelierException("物理表不存在，请先执行建表: " + preview.getTableCode());
+        }
+        if (!preview.isSyncNeeded()) {
+            throw new AtelierException("物理表字段已与元数据一致，无需同步");
+        }
+
+        DbType dbType = resolveDbType(entity.getPkDatasource());
+        List<MetaTableField> fields = listFields(entity.getPkMetaTable());
+        try (Connection connection = dataSourceRegistry.getConnection(entity.getPkDatasource())) {
+            Set<String> physicalColumns = listPhysicalColumnNames(
+                    connection, entity.getSchemaCode(), entity.getTableCode());
+            List<MetaTableField> missingFields = findMissingFields(fields, physicalColumns);
+            List<String> statements = TableDdlBuilder.buildAddColumnStatements(
+                    dbType, entity.getSchemaCode(), entity.getTableCode(), missingFields);
+            jdbcTemplate.executeAll(connection, statements);
+        } catch (AtelierException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AtelierException("增量同步执行失败: " + e.getMessage(), e);
+        }
     }
 
     @Override
@@ -267,6 +352,60 @@ public class MetadataServiceImpl implements MetadataService {
         if (tableCode == null || !SAFE_TABLE_CODE.matcher(tableCode).matches()) {
             throw new AtelierException("非法表编码，仅允许字母、数字与下划线: " + tableCode);
         }
+    }
+
+    private DbType resolveDbType(String datasourceId) {
+        DataSourceConfig config = dataSourceRegistry.getConfig(datasourceId);
+        if (config == null) {
+            throw new AtelierException("数据源不存在: " + datasourceId);
+        }
+        return config.getDbType() != null ? config.getDbType() : DbType.UNKNOWN;
+    }
+
+    private Set<String> listPhysicalColumnNames(Connection connection, String schemaCode, String tableCode)
+            throws java.sql.SQLException {
+        DatabaseMetaData metaData = connection.getMetaData();
+        String catalog = connection.getCatalog();
+        String schema = resolvePhysicalSchema(connection, schemaCode);
+        Set<String> columns = new HashSet<>();
+        collectColumnNames(metaData, catalog, schema, tableCode, columns);
+        if (columns.isEmpty() && !tableCode.equals(tableCode.toUpperCase(Locale.ROOT))) {
+            collectColumnNames(metaData, catalog, schema, tableCode.toUpperCase(Locale.ROOT), columns);
+        }
+        return columns;
+    }
+
+    private void collectColumnNames(DatabaseMetaData metaData,
+                                    String catalog,
+                                    String schema,
+                                    String tableCode,
+                                    Set<String> columns) throws java.sql.SQLException {
+        try (ResultSet rs = metaData.getColumns(catalog, schema, tableCode, null)) {
+            while (rs.next()) {
+                String name = rs.getString("COLUMN_NAME");
+                if (name != null) {
+                    columns.add(name.toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+    }
+
+    private List<MetaTableField> findMissingFields(List<MetaTableField> metadataFields,
+                                                  Set<String> physicalColumns) {
+        if (metadataFields == null || metadataFields.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<MetaTableField> missing = new ArrayList<>();
+        for (MetaTableField field : metadataFields) {
+            String code = field.getFieldCode();
+            if (code == null || code.trim().isEmpty()) {
+                continue;
+            }
+            if (!physicalColumns.contains(code.toLowerCase(Locale.ROOT))) {
+                missing.add(field);
+            }
+        }
+        return missing;
     }
 
     private boolean physicalTableExists(Connection connection, String schemaCode, String tableCode)

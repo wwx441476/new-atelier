@@ -1,7 +1,10 @@
 package com.example.atelier.warning.service;
 
+import com.example.atelier.domain.metric.FilterCondition;
+import com.example.atelier.domain.metric.FilterGroup;
 import com.example.atelier.domain.query.MetricQueryRequest;
 import com.example.atelier.domain.query.QueryResult;
+import com.example.atelier.domain.warning.ExpressionValidateResult;
 import com.example.atelier.domain.warning.WarningRule;
 import com.example.atelier.domain.warning.WarningRulePreviewResult;
 import com.example.atelier.infra.exception.AtelierException;
@@ -9,6 +12,7 @@ import com.example.atelier.infra.persistence.entity.WarningRuleEntity;
 import com.example.atelier.infra.persistence.jpa.WarningRuleJpaRepository;
 import com.example.atelier.query.service.MetricQueryService;
 import com.example.atelier.warning.evaluator.WarningExpressionEvaluator;
+import com.example.atelier.warning.evaluator.WarningExpressionValidator;
 import com.example.atelier.warning.spi.WarningRuleService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +37,7 @@ public class WarningRuleServiceImpl implements WarningRuleService {
     private final WarningRuleJpaRepository repository;
     private final MetricQueryService metricQueryService;
     private final WarningExpressionEvaluator evaluator = new WarningExpressionEvaluator();
+    private final WarningExpressionValidator expressionValidator = new WarningExpressionValidator();
 
     public WarningRuleServiceImpl(WarningRuleJpaRepository repository,
                                   MetricQueryService metricQueryService) {
@@ -66,6 +71,14 @@ public class WarningRuleServiceImpl implements WarningRuleService {
                 throw new AtelierException("规则编码已存在: " + rule.getCode());
             }
         });
+        ExpressionValidateResult validation = expressionValidator.validate(
+                rule.getExpression(), rule.getMetricCodes());
+        if (!validation.isValid()) {
+            throw new AtelierException(validation.getMessage());
+        }
+        if (validation.getNormalizedExpression() != null) {
+            rule.setExpression(validation.getNormalizedExpression());
+        }
         WarningRuleEntity entity = rule.getId() != null
                 ? repository.findById(rule.getId()).orElse(newEntity(rule))
                 : newEntity(rule);
@@ -94,7 +107,14 @@ public class WarningRuleServiceImpl implements WarningRuleService {
     }
 
     @Override
-    public WarningRulePreviewResult previewRule(String id, int pageIndex, int pageSize) {
+    public ExpressionValidateResult validateExpression(String expression, List<String> metricCodes) {
+        return expressionValidator.validate(expression, metricCodes);
+    }
+
+    @Override
+    public WarningRulePreviewResult previewRule(String id, int pageIndex, int pageSize,
+                                                List<FilterCondition> filters,
+                                                List<FilterGroup> filterGroups) {
         WarningRule rule = getRule(id)
                 .orElseThrow(() -> new AtelierException("预警规则不存在: " + id));
         if (rule.getMetricCodes() == null || rule.getMetricCodes().isEmpty()) {
@@ -109,6 +129,8 @@ public class WarningRuleServiceImpl implements WarningRuleService {
 
         MetricQueryRequest request = MetricQueryRequest.builder()
                 .metricCodes(rule.getMetricCodes())
+                .filters(filters)
+                .filterGroups(filterGroups)
                 .pageIndex(page)
                 .pageSize(size)
                 .applyRowAuth(false)

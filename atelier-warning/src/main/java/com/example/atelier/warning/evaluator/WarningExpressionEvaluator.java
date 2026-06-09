@@ -14,7 +14,8 @@ public class WarningExpressionEvaluator {
     private final ExpressRunner runner = new ExpressRunner();
 
     public boolean evaluate(String expression, Map<String, Object> context) {
-        if (expression == null || expression.trim().isEmpty()) {
+        String normalized = WarningExpressionNormalizer.normalize(expression);
+        if (normalized.isEmpty()) {
             return false;
         }
         try {
@@ -22,7 +23,7 @@ public class WarningExpressionEvaluator {
             if (context != null) {
                 context.forEach(qlContext::put);
             }
-            Object result = runner.execute(expression, qlContext, null, true, false);
+            Object result = runner.execute(normalized, qlContext, null, true, false);
             if (result instanceof Boolean) {
                 return (Boolean) result;
             }

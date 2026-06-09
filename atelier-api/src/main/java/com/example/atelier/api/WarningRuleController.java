@@ -1,6 +1,12 @@
 package com.example.atelier.api;
 
 import com.example.atelier.api.dto.ApiResponse;
+import com.example.atelier.api.dto.MetricQueryApiRequest;
+import com.example.atelier.api.dto.WarningRulePreviewRequest;
+import com.example.atelier.domain.metric.FilterCondition;
+import com.example.atelier.domain.metric.FilterGroup;
+import com.example.atelier.domain.metric.FilterOperator;
+import com.example.atelier.domain.warning.ExpressionValidateResult;
 import com.example.atelier.domain.warning.WarningRule;
 import com.example.atelier.domain.warning.WarningRulePreviewResult;
 import com.example.atelier.warning.spi.WarningRuleService;
@@ -16,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 预警规则管理 API — /api/v2/warning/rules。
@@ -47,7 +54,20 @@ public class WarningRuleController {
             @PathVariable String id,
             @RequestParam(value = "pageIndex", defaultValue = "1") int pageIndex,
             @RequestParam(value = "pageSize", defaultValue = "20") int pageSize) {
-        return ApiResponse.ok(warningRuleService.previewRule(id, pageIndex, pageSize));
+        return ApiResponse.ok(warningRuleService.previewRule(id, pageIndex, pageSize, null, null));
+    }
+
+    @PostMapping("/{id}/preview")
+    public ApiResponse<WarningRulePreviewResult> previewWithFilters(
+            @PathVariable String id,
+            @RequestBody(required = false) WarningRulePreviewRequest request) {
+        WarningRulePreviewRequest body = request != null ? request : new WarningRulePreviewRequest();
+        return ApiResponse.ok(warningRuleService.previewRule(
+                id,
+                body.getPageIndex(),
+                body.getPageSize(),
+                toFilterConditions(body.getFilters()),
+                toFilterGroups(body.getFilterGroups())));
     }
 
     @PostMapping
@@ -61,6 +81,14 @@ public class WarningRuleController {
         return ApiResponse.ok(null);
     }
 
+    @PostMapping("/validate-expression")
+    public ApiResponse<ExpressionValidateResult> validateExpression(@RequestBody Map<String, Object> request) {
+        String expression = (String) request.get("expression");
+        @SuppressWarnings("unchecked")
+        List<String> metricCodes = (List<String>) request.get("metricCodes");
+        return ApiResponse.ok(warningRuleService.validateExpression(expression, metricCodes));
+    }
+
     @PostMapping("/evaluate")
     public ApiResponse<Map<String, Object>> evaluate(@RequestBody Map<String, Object> request) {
         String expression = (String) request.get("expression");
@@ -70,5 +98,47 @@ public class WarningRuleController {
         Map<String, Object> result = new HashMap<>();
         result.put("triggered", triggered);
         return ApiResponse.ok(result);
+    }
+
+    private List<FilterCondition> toFilterConditions(List<MetricQueryApiRequest.FilterDto> filters) {
+        if (filters == null || filters.isEmpty()) {
+            return null;
+        }
+        return filters.stream().map(this::toFilterCondition).collect(Collectors.toList());
+    }
+
+    private List<FilterGroup> toFilterGroups(List<MetricQueryApiRequest.FilterGroupDto> filterGroups) {
+        if (filterGroups == null || filterGroups.isEmpty()) {
+            return null;
+        }
+        return filterGroups.stream()
+                .map(group -> FilterGroup.builder()
+                        .conditions(group.getConditions() == null ? null :
+                                group.getConditions().stream()
+                                        .map(this::toFilterCondition)
+                                        .collect(Collectors.toList()))
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    private FilterCondition toFilterCondition(MetricQueryApiRequest.FilterDto filter) {
+        return FilterCondition.builder()
+                .field(filter.getField())
+                .operator(parseOperator(filter.getOperator()))
+                .values(filter.getValues())
+                .build();
+    }
+
+    private FilterOperator parseOperator(String operator) {
+        if (operator == null || operator.trim().isEmpty()) {
+            throw new IllegalArgumentException("过滤运算符不能为空");
+        }
+        String normalized = operator.toUpperCase().replace(" ", "_");
+        if ("GTE".equals(normalized)) {
+            normalized = "GE";
+        } else if ("LTE".equals(normalized)) {
+            normalized = "LE";
+        }
+        return FilterOperator.valueOf(normalized);
     }
 }

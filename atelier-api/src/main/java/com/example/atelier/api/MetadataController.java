@@ -97,4 +97,10 @@ public class MetadataController {
         metadataService.executeCreateTable(id);
         return ApiResponse.ok(null);
     }
+
+    @PostMapping("/tables/{id}/ddl/sync")
+    public ApiResponse<Void> executeSyncTableDdl(@PathVariable String id) {
+        metadataService.executeSyncTable(id);
+        return ApiResponse.ok(null);
+    }
 }

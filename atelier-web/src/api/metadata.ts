@@ -20,4 +20,6 @@ export const metadataApi = {
     getData<MetaTableDdlResult>(`/metadata/tables/${tableId}/ddl`),
   executeCreateTableDdl: (tableId: string) =>
     postData<void>(`/metadata/tables/${tableId}/ddl/execute`),
+  executeSyncTableDdl: (tableId: string) =>
+    postData<void>(`/metadata/tables/${tableId}/ddl/sync`),
 };

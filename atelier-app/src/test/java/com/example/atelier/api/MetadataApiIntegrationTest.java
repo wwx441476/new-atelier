@@ -221,6 +221,63 @@ public class MetadataApiIntegrationTest {
     }
 
     @Test
+    public void executeSyncTable_shouldAddMissingColumns() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        MetaTableField remarkField = MetaTableField.builder()
+                .fieldCode("remark")
+                .fieldName("备注")
+                .fieldType("VARCHAR")
+                .fieldLength(255)
+                .sort(5)
+                .build();
+        ResponseEntity<ApiResponse<MetaTableField>> saveFieldResponse = restTemplate.exchange(
+                "http://localhost:" + port + "/api/v2/metadata/tables/mt-orders/fields",
+                HttpMethod.POST,
+                new HttpEntity<>(remarkField, headers),
+                new ParameterizedTypeReference<ApiResponse<MetaTableField>>() {
+                });
+        assertEquals(0, saveFieldResponse.getBody().getCode());
+
+        ResponseEntity<ApiResponse<MetaTableDdlResult>> ddlResponse = restTemplate.exchange(
+                "http://localhost:" + port + "/api/v2/metadata/tables/mt-orders/ddl",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<ApiResponse<MetaTableDdlResult>>() {
+                });
+        MetaTableDdlResult ddlResult = ddlResponse.getBody().getData();
+        assertTrue(ddlResult.isSyncNeeded());
+        assertTrue(ddlResult.getAlterDdl().contains("ADD COLUMN remark"));
+        assertTrue(ddlResult.getMissingFieldCodes().contains("remark"));
+
+        ResponseEntity<ApiResponse<Void>> syncResponse = restTemplate.exchange(
+                "http://localhost:" + port + "/api/v2/metadata/tables/mt-orders/ddl/sync",
+                HttpMethod.POST,
+                null,
+                new ParameterizedTypeReference<ApiResponse<Void>>() {
+                });
+        assertEquals(0, syncResponse.getBody().getCode());
+
+        ResponseEntity<ApiResponse<QueryResult>> previewResponse = restTemplate.exchange(
+                "http://localhost:" + port + "/api/v2/metadata/tables/mt-orders/preview?pageIndex=1&pageSize=20",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<ApiResponse<QueryResult>>() {
+                });
+        assertEquals(0, previewResponse.getBody().getCode());
+        assertTrue(previewResponse.getBody().getData().getSql().contains("remark"));
+
+        String fieldId = saveFieldResponse.getBody().getData().getId();
+        restTemplate.exchange(
+                "http://localhost:" + port + "/api/v2/metadata/fields/" + fieldId,
+                HttpMethod.DELETE,
+                null,
+                new ParameterizedTypeReference<ApiResponse<Void>>() {
+                });
+    }
+
+    @Test
     public void previewTable_shouldSupportLegacyMlPrefix() {
         ResponseEntity<ApiResponse<QueryResult>> response = restTemplate.exchange(
                 "http://localhost:" + port + "/api/v2/metadata/tables/ml-orders/preview?pageIndex=1&pageSize=20",

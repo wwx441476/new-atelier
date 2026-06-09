@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Form,
@@ -18,10 +18,28 @@ import type { ColumnsType } from 'antd/es/table';
 import GuidePageShell from '../components/GuidePageShell';
 import PageHeader from '../components/PageHeader';
 import { useTutorialDemo } from '../guide/useTutorialDemo';
+import DimensionFilterGroupsForm from '../components/DimensionFilterGroupsForm';
 import SqlPreviewBlock from '../components/SqlPreviewBlock';
+import WarningExpressionField, {
+  validateWarningExpressionField,
+} from '../components/WarningExpressionField';
+import { dimensionApi } from '../api/dimension';
 import { warningApi } from '../api/warning';
 import { metricApi } from '../api/metric';
-import type { MetricDefinition, WarningRule, WarningRulePreviewResult } from '../api/types';
+import type {
+  Dimension,
+  MetricDefinition,
+  WarningRule,
+  WarningRulePreviewResult,
+} from '../api/types';
+import { formatDimensionDisplayValue, resolveCommonDimensions } from '../utils/metricDimensions';
+import {
+  buildFilterRequest,
+  createDefaultFilterGroup,
+  hasActiveFilterQuery,
+  type FilterGroupForm,
+  type FilterQuery,
+} from '../utils/queryFilters';
 
 export default function WarningRulePage() {
   const [loading, setLoading] = useState(false);
@@ -45,16 +63,28 @@ export default function WarningRulePage() {
   const [previewRule, setPreviewRule] = useState<WarningRule | null>(null);
   const [previewResult, setPreviewResult] = useState<WarningRulePreviewResult | null>(null);
   const [previewPage, setPreviewPage] = useState({ pageIndex: 1, pageSize: 20 });
+  const [dimensions, setDimensions] = useState<Dimension[]>([]);
+  const [previewFilterForm] = Form.useForm<{ filterGroups: FilterGroupForm[] }>();
+  const [previewActiveFilterQuery, setPreviewActiveFilterQuery] = useState<FilterQuery>({});
+  const [dimensionValueOptions, setDimensionValueOptions] = useState<
+    Record<string, { label: string; value: string }[]>
+  >({});
+  const [dimensionValueNames, setDimensionValueNames] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const selectedMetricCodes = Form.useWatch('metricCodes', form) as string[] | undefined;
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [ruleList, metricList] = await Promise.all([
+      const [ruleList, metricList, dimensionList] = await Promise.all([
         warningApi.list(),
         metricApi.listDefinitions(),
+        dimensionApi.list(),
       ]);
       setRules(ruleList);
       setMetrics(metricList);
+      setDimensions(dimensionList);
     } finally {
       setLoading(false);
     }
@@ -95,37 +125,140 @@ export default function WarningRulePage() {
     value: m.code,
   }));
 
-  const loadPreview = async (rule: WarningRule, pageIndex: number, pageSize: number) => {
-    if (!rule.id) {
-      return;
-    }
-    setPreviewLoading(true);
-    try {
-      const result = await warningApi.previewRule(rule.id, pageIndex, pageSize);
-      setPreviewResult(result);
-      setPreviewPage({ pageIndex, pageSize });
-    } catch {
-      setPreviewResult(null);
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
+  const loadDimensionValueOptions = useCallback(
+    async (metricCodes: string[]) => {
+      const bindings = resolveCommonDimensions(metricCodes, metrics);
+      const options: Record<string, { label: string; value: string }[]> = {};
+      const names: Record<string, Record<string, string>> = {};
+      await Promise.all(
+        bindings.map(async (binding) => {
+          const dim = dimensions.find((d) => d.code === binding.dimensionCode);
+          if (!dim?.id) {
+            return;
+          }
+          const values = await dimensionApi.listValues(dim.id);
+          const codeToName: Record<string, string> = {};
+          values.forEach((v) => {
+            codeToName[v.code] = v.name || v.code;
+          });
+          options[binding.fieldCode] = values.map((v) => ({
+            label: v.name ? `${v.name} (${v.code})` : v.code,
+            value: v.code,
+          }));
+          names[binding.fieldCode] = codeToName;
+          names[binding.dimensionCode] = codeToName;
+        }),
+      );
+      setDimensionValueOptions(options);
+      setDimensionValueNames(names);
+    },
+    [dimensions, metrics],
+  );
 
-  const openPreview = (record: WarningRule) => {
+  const loadPreview = useCallback(
+    async (
+      rule: WarningRule,
+      pageIndex: number,
+      pageSize: number,
+      filterQuery: FilterQuery = {},
+    ) => {
+      if (!rule.id) {
+        return;
+      }
+      setPreviewLoading(true);
+      try {
+        const result = await warningApi.previewRule(rule.id, {
+          pageIndex,
+          pageSize,
+          filters: filterQuery.filters,
+          filterGroups: filterQuery.filterGroups,
+        });
+        setPreviewResult(result);
+        setPreviewPage({ pageIndex, pageSize });
+      } catch {
+        setPreviewResult(null);
+      } finally {
+        setPreviewLoading(false);
+      }
+    },
+    [],
+  );
+
+  const previewCommonDimensions = useMemo(
+    () => resolveCommonDimensions(previewRule?.metricCodes || [], metrics),
+    [previewRule, metrics],
+  );
+
+  const previewFilterFieldOptions = useMemo(
+    () =>
+      previewCommonDimensions.map((d) => ({
+        label: d.fieldName ? `${d.fieldName} (${d.fieldCode})` : d.fieldCode,
+        value: d.fieldCode,
+      })),
+    [previewCommonDimensions],
+  );
+
+  const openPreview = async (record: WarningRule) => {
+    const commonDims = resolveCommonDimensions(record.metricCodes || [], metrics);
     setPreviewRule(record);
     setPreviewResult(null);
     setPreviewPage({ pageIndex: 1, pageSize: 20 });
+    setPreviewActiveFilterQuery({});
+    setDimensionValueOptions({});
+    setDimensionValueNames({});
+    previewFilterForm.resetFields();
+    previewFilterForm.setFieldsValue({
+      filterGroups: [createDefaultFilterGroup(commonDims[0]?.fieldCode || '')],
+    });
     setPreviewModalOpen(true);
-    loadPreview(record, 1, 20);
+    await loadDimensionValueOptions(record.metricCodes || []);
+    loadPreview(record, 1, 20, {});
   };
 
-  const previewColumns: ColumnsType<Record<string, unknown>> = (() => {
-    const keys = previewResult?.rows?.length
+  const applyPreviewFilters = () => {
+    if (!previewRule) {
+      return;
+    }
+    const values = previewFilterForm.getFieldsValue();
+    const filterQuery = buildFilterRequest(values.filterGroups || []);
+    setPreviewActiveFilterQuery(filterQuery);
+    loadPreview(previewRule, 1, previewPage.pageSize, filterQuery);
+  };
+
+  const clearPreviewFilters = () => {
+    previewFilterForm.setFieldsValue({
+      filterGroups: [createDefaultFilterGroup(previewFilterFieldOptions[0]?.value || '')],
+    });
+    setPreviewActiveFilterQuery({});
+    if (previewRule) {
+      loadPreview(previewRule, 1, previewPage.pageSize, {});
+    }
+  };
+
+  const previewDimensionKeys = useMemo(() => {
+    const rowKeys = previewResult?.rows?.length
       ? Object.keys(previewResult.rows[0])
       : Object.keys(previewResult?.headers || {});
-    return keys.map((key) => ({
+    const metricCodes = previewRule?.metricCodes || [];
+    return rowKeys.filter((key) => key !== '_triggered' && !metricCodes.includes(key));
+  }, [previewResult, previewRule]);
+
+  const previewColumns: ColumnsType<Record<string, unknown>> = useMemo(() => {
+    const rowKeys = previewResult?.rows?.length
+      ? Object.keys(previewResult.rows[0])
+      : Object.keys(previewResult?.headers || {});
+    const metricCodes = previewRule?.metricCodes || [];
+    const dimensionKeys = previewDimensionKeys;
+    const orderedKeys = [
+      ...dimensionKeys,
+      ...metricCodes.filter((code) => rowKeys.includes(code)),
+      ...(rowKeys.includes('_triggered') ? ['_triggered'] : []),
+    ];
+    const dimensionKeySet = new Set(dimensionKeys);
+    return orderedKeys.map((key) => ({
       title: previewResult?.headers?.[key] || key,
       dataIndex: key,
+      width: key === '_triggered' ? 100 : undefined,
       ellipsis: key !== '_triggered',
       render: (value: unknown) => {
         if (key === '_triggered') {
@@ -135,10 +268,13 @@ export default function WarningRulePage() {
             <Tag color="default">未触发</Tag>
           );
         }
+        if (dimensionKeySet.has(key)) {
+          return formatDimensionDisplayValue(key, value, dimensionValueNames);
+        }
         return value != null ? String(value) : '-';
       },
     }));
-  })();
+  }, [previewResult, previewRule, previewDimensionKeys, dimensionValueNames]);
 
   const columns: ColumnsType<WarningRule> = [
     { title: '名称', dataIndex: 'name', width: 160 },
@@ -238,7 +374,31 @@ export default function WarningRulePage() {
         <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
           表达式: {previewResult?.expression || previewRule?.expression} · 本页触发{' '}
           {previewResult?.matchedCount ?? 0} 条
+          {previewDimensionKeys.length > 0 && <span> · 已展示公共维度列</span>}
+          {hasActiveFilterQuery(previewActiveFilterQuery) && <span> · 已应用维度筛选</span>}
         </Typography.Paragraph>
+        {previewCommonDimensions.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <Typography.Text strong>维度筛选（可选）</Typography.Text>
+            <Form form={previewFilterForm} layout="vertical" style={{ marginTop: 8 }}>
+              <DimensionFilterGroupsForm
+                fieldOptions={previewFilterFieldOptions}
+                valueOptionsByField={dimensionValueOptions}
+                onCreateGroup={() =>
+                  createDefaultFilterGroup(previewFilterFieldOptions[0]?.value || '')
+                }
+              />
+            </Form>
+            <Space style={{ marginTop: 8 }}>
+              <Button type="primary" onClick={applyPreviewFilters} loading={previewLoading}>
+                应用筛选
+              </Button>
+              <Button onClick={clearPreviewFilters} disabled={previewLoading}>
+                清空
+              </Button>
+            </Space>
+          </div>
+        )}
         {previewResult?.sql && (
           <div style={{ marginBottom: 16 }}>
             <Typography.Text strong>预警 SQL</Typography.Text>
@@ -262,7 +422,7 @@ export default function WarningRulePage() {
             showTotal: (t) => `共 ${t} 条`,
             onChange: (page, pageSize) => {
               if (previewRule) {
-                loadPreview(previewRule, page, pageSize);
+                loadPreview(previewRule, page, pageSize, previewActiveFilterQuery);
               }
             },
           }}
@@ -305,10 +465,22 @@ export default function WarningRulePage() {
           <Form.Item
             name="expression"
             label="预警表达式"
-            rules={[{ required: true }]}
-            extra="如 profit < 500 或 revenue > 1000"
+            rules={[
+              { required: true, message: '请输入预警表达式' },
+              {
+                validator: async (_, expression) => {
+                  await validateWarningExpressionField(
+                    expression,
+                    selectedMetricCodes || [],
+                  );
+                },
+              },
+            ]}
           >
-            <Input.TextArea rows={3} placeholder="profit < 500" />
+            <WarningExpressionField
+              metricCodes={selectedMetricCodes || []}
+              metrics={metrics}
+            />
           </Form.Item>
           <Form.Item name="warningLevel" label="预警级别">
             <Select

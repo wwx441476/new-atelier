@@ -53,4 +53,15 @@ public class JdbcTemplate {
             throw new AtelierException("SQL 执行失败: " + e.getMessage(), e);
         }
     }
+
+    public void executeAll(Connection connection, Iterable<String> sqlStatements) {
+        if (sqlStatements == null) {
+            return;
+        }
+        for (String sql : sqlStatements) {
+            if (sql != null && !sql.trim().isEmpty()) {
+                execute(connection, sql.trim());
+            }
+        }
+    }
 }

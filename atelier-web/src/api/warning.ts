@@ -1,13 +1,28 @@
 import { deleteData, getData, postData } from './client';
-import type { WarningRule, WarningRulePreviewResult } from './types';
+import type {
+  ExpressionValidateResult,
+  WarningRule,
+  WarningRulePreviewRequest,
+  WarningRulePreviewResult,
+} from './types';
 
 export const warningApi = {
   list: () => getData<WarningRule[]>('/warning/rules'),
   get: (id: string) => getData<WarningRule>(`/warning/rules/${id}`),
   save: (data: WarningRule) => postData<WarningRule>('/warning/rules', data),
   delete: (id: string) => deleteData<void>(`/warning/rules/${id}`),
+  validateExpression: (expression: string, metricCodes: string[]) =>
+    postData<ExpressionValidateResult>('/warning/rules/validate-expression', {
+      expression,
+      metricCodes,
+    }),
   evaluate: (expression: string, metricValues: Record<string, unknown>) =>
     postData<{ triggered: boolean }>('/warning/rules/evaluate', { expression, metricValues }),
-  previewRule: (id: string, pageIndex = 1, pageSize = 20) =>
-    getData<WarningRulePreviewResult>(`/warning/rules/${id}/preview`, { pageIndex, pageSize }),
+  previewRule: (id: string, request: WarningRulePreviewRequest = {}) =>
+    postData<WarningRulePreviewResult>(`/warning/rules/${id}/preview`, {
+      pageIndex: request.pageIndex ?? 1,
+      pageSize: request.pageSize ?? 20,
+      filters: request.filters,
+      filterGroups: request.filterGroups,
+    }),
 };

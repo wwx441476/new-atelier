@@ -1,5 +1,8 @@
 package com.example.atelier.warning.spi;
 
+import com.example.atelier.domain.metric.FilterCondition;
+import com.example.atelier.domain.metric.FilterGroup;
+import com.example.atelier.domain.warning.ExpressionValidateResult;
 import com.example.atelier.domain.warning.WarningRule;
 import com.example.atelier.domain.warning.WarningRulePreviewResult;
 
@@ -25,6 +28,9 @@ public interface WarningRuleService {
     /** 表达式评估桩 — 传入指标值上下文 */
     boolean evaluateExpression(String expression, Map<String, Object> metricValues);
 
+    ExpressionValidateResult validateExpression(String expression, List<String> metricCodes);
+
     /** 预览规则关联指标数据，并标记每行是否触发预警 */
-    WarningRulePreviewResult previewRule(String id, int pageIndex, int pageSize);
+    WarningRulePreviewResult previewRule(String id, int pageIndex, int pageSize,
+                                       List<FilterCondition> filters, List<FilterGroup> filterGroups);
 }

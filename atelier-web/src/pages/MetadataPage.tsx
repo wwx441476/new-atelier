@@ -39,6 +39,7 @@ export default function MetadataPage() {
   const [fieldModalOpen, setFieldModalOpen] = useState(false);
   const [editingTable, setEditingTable] = useState<MetaTable | null>(null);
   const [editingField, setEditingField] = useState<MetaTableField | null>(null);
+  const [insertAfterFieldCode, setInsertAfterFieldCode] = useState<string | null>(null);
   const [currentTableId, setCurrentTableId] = useState<string>('');
   const [fieldsMap, setFieldsMap] = useState<Record<string, MetaTableField[]>>({});
   const [tableForm] = Form.useForm<MetaTable>();
@@ -52,6 +53,7 @@ export default function MetadataPage() {
   const [ddlModalOpen, setDdlModalOpen] = useState(false);
   const [ddlLoading, setDdlLoading] = useState(false);
   const [ddlExecuting, setDdlExecuting] = useState(false);
+  const [ddlSyncExecuting, setDdlSyncExecuting] = useState(false);
   const [ddlTable, setDdlTable] = useState<MetaTable | null>(null);
   const [ddlResult, setDdlResult] = useState<MetaTableDdlResult | null>(null);
   const [schemaOptions, setSchemaOptions] = useState<DbSchemaInfo[]>([]);
@@ -174,16 +176,33 @@ export default function MetadataPage() {
     onSaveSuccess();
   };
 
+  const resolveNextSort = (tableId: string) => {
+    const fields = fieldsMap[tableId] || [];
+    return fields.reduce((max, field) => Math.max(max, field.sort ?? 0), 0) + 1;
+  };
+
   const openCreateField = (tableId: string) => {
     setCurrentTableId(tableId);
     setEditingField(null);
+    setInsertAfterFieldCode(null);
     fieldForm.resetFields();
+    fieldForm.setFieldsValue({ sort: resolveNextSort(tableId) });
+    setFieldModalOpen(true);
+  };
+
+  const openCreateFieldAfter = (tableId: string, afterField: MetaTableField) => {
+    setCurrentTableId(tableId);
+    setEditingField(null);
+    setInsertAfterFieldCode(afterField.fieldCode);
+    fieldForm.resetFields();
+    fieldForm.setFieldsValue({ sort: (afterField.sort ?? 0) + 1 });
     setFieldModalOpen(true);
   };
 
   const openEditField = (tableId: string, field: MetaTableField) => {
     setCurrentTableId(tableId);
     setEditingField(field);
+    setInsertAfterFieldCode(null);
     fieldForm.setFieldsValue(field);
     setFieldModalOpen(true);
   };
@@ -242,6 +261,64 @@ export default function MetadataPage() {
     }
   };
 
+  const handleExecuteSyncDdl = async (table: MetaTable) => {
+    if (!table.id) return;
+    setDdlSyncExecuting(true);
+    try {
+      await metadataApi.executeSyncTableDdl(table.id);
+      message.success('增量 DDL 已执行');
+      if (ddlTable?.id === table.id) {
+        setDdlResult(await metadataApi.getCreateTableDdl(table.id));
+      }
+      if (previewModalOpen && previewTable?.id === table.id) {
+        setPreviewError(false);
+        await loadPreview(table, previewPage.pageIndex, previewPage.pageSize);
+      }
+    } finally {
+      setDdlSyncExecuting(false);
+    }
+  };
+
+  const promptSyncIfNeeded = async (tableId: string) => {
+    try {
+      const ddl = await metadataApi.getCreateTableDdl(tableId);
+      if (ddl.syncNeeded && ddl.missingFieldCodes?.length) {
+        Modal.confirm({
+          title: '同步物理表字段',
+          content: `物理表缺少字段：${ddl.missingFieldCodes.join(', ')}，是否立即执行增量 DDL？`,
+          okText: '执行同步',
+          cancelText: '稍后',
+          onOk: async () => {
+            const table = tables.find((t) => t.id === tableId);
+            if (table) {
+              await handleExecuteSyncDdl(table);
+            }
+          },
+        });
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleQuickSync = async (table: MetaTable) => {
+    if (!table.id) return;
+    try {
+      const ddl = await metadataApi.getCreateTableDdl(table.id);
+      if (!ddl.tableExists) {
+        openDdl(table);
+        return;
+      }
+      if (ddl.syncNeeded) {
+        await handleExecuteSyncDdl(table);
+        return;
+      }
+      message.info('物理表字段已是最新');
+    } catch {
+      openDdl(table);
+    }
+  };
+
   const handleSaveField = async () => {
     const values = await fieldForm.validateFields();
     if (editingField?.id) {
@@ -250,7 +327,11 @@ export default function MetadataPage() {
     await metadataApi.saveField(currentTableId, values);
     message.success('字段已保存');
     setFieldModalOpen(false);
+    setInsertAfterFieldCode(null);
     loadFields(currentTableId);
+    if (!editingField?.id) {
+      await promptSyncIfNeeded(currentTableId);
+    }
     if (tutorialChain?.kind === 'metadata-fields') {
       const nextIndex = tutorialChain.index + 1;
       if (nextIndex < tutorialChain.fields.length) {
@@ -320,9 +401,17 @@ export default function MetadataPage() {
     { title: '排序', dataIndex: 'sort', width: 70 },
     {
       title: '操作',
-      width: 140,
+      width: 200,
       render: (_, field) => (
         <Space>
+          <Button
+            type="link"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={() => openCreateFieldAfter(tableId, field)}
+          >
+            后插
+          </Button>
           <Button type="link" size="small" onClick={() => openEditField(tableId, field)}>
             编辑
           </Button>
@@ -483,12 +572,22 @@ export default function MetadataPage() {
             type="warning"
             showIcon
             style={{ marginBottom: 12 }}
-            message="数据预览失败，物理表可能尚未创建"
+            message="数据预览失败，物理表可能尚未创建或缺少新增字段"
             action={
               previewTable ? (
-                <Button size="small" onClick={() => openDdl(previewTable)}>
-                  查看建表 DDL
-                </Button>
+                <Space>
+                  <Button size="small" onClick={() => openDdl(previewTable)}>
+                    查看 DDL
+                  </Button>
+                  <Button
+                    size="small"
+                    type="primary"
+                    loading={ddlSyncExecuting}
+                    onClick={() => handleQuickSync(previewTable)}
+                  >
+                    同步字段
+                  </Button>
+                </Space>
               ) : undefined
             }
           />
@@ -529,6 +628,18 @@ export default function MetadataPage() {
         footer={
           <Space>
             <Button onClick={() => setDdlModalOpen(false)}>关闭</Button>
+            {ddlResult?.syncNeeded && ddlTable && (
+              <Popconfirm
+                title="确认执行增量 DDL？"
+                description={`将为物理表添加字段：${ddlResult.missingFieldCodes?.join(', ')}`}
+                onConfirm={() => handleExecuteSyncDdl(ddlTable)}
+                disabled={ddlLoading}
+              >
+                <Button type="primary" loading={ddlSyncExecuting} disabled={ddlLoading}>
+                  执行增量同步
+                </Button>
+              </Popconfirm>
+            )}
             <Popconfirm
               title={`确认在数据源 ${ddlResult?.datasourceId || ''} 执行建表？`}
               description="将在目标数据库创建物理表，请确认 DDL 无误。"
@@ -536,7 +647,6 @@ export default function MetadataPage() {
               disabled={!ddlResult || ddlResult.tableExists || ddlLoading}
             >
               <Button
-                type="primary"
                 loading={ddlExecuting}
                 disabled={!ddlResult || ddlResult.tableExists || ddlLoading}
               >
@@ -553,30 +663,70 @@ export default function MetadataPage() {
           {ddlTable?.schemaCode ? ` · Schema: ${ddlTable.schemaCode}` : ''} · 物理表:{' '}
           {ddlResult?.tableCode || ddlTable?.tableCode}
         </Typography.Paragraph>
-        {ddlResult?.tableExists && (
+        {ddlResult?.tableExists && !ddlResult.syncNeeded && (
           <Alert
             type="info"
             showIcon
             style={{ marginBottom: 12 }}
-            message="物理表已存在，无需重复建表"
+            message="物理表已存在且字段已同步，无需重复建表"
+          />
+        )}
+        {ddlResult?.syncNeeded && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={`物理表缺少 ${ddlResult.missingFieldCodes?.length ?? 0} 个字段，可执行增量同步`}
+            description={`待添加：${ddlResult.missingFieldCodes?.join(', ')}`}
           />
         )}
         {ddlLoading ? (
           <Typography.Text type="secondary">加载 DDL 中...</Typography.Text>
-        ) : ddlResult?.ddl ? (
-          <SqlPreviewBlock sql={ddlResult.ddl} />
         ) : (
-          <Typography.Text type="secondary">暂无 DDL，请先配置字段定义</Typography.Text>
+          <>
+            {ddlResult?.alterDdl && (
+              <div style={{ marginBottom: 16 }}>
+                <Typography.Text strong>增量 DDL</Typography.Text>
+                <SqlPreviewBlock sql={ddlResult.alterDdl} />
+              </div>
+            )}
+            {ddlResult?.ddl && (
+              <div>
+                <Typography.Text strong>
+                  {ddlResult.tableExists ? '全量建表 DDL（参考）' : '建表 DDL'}
+                </Typography.Text>
+                <SqlPreviewBlock sql={ddlResult.ddl} />
+              </div>
+            )}
+            {!ddlResult?.ddl && !ddlResult?.alterDdl && (
+              <Typography.Text type="secondary">暂无 DDL，请先配置字段定义</Typography.Text>
+            )}
+          </>
         )}
       </Modal>
 
       <Modal
-        title={editingField ? '编辑字段' : '新建字段'}
+        title={
+          editingField
+            ? '编辑字段'
+            : insertAfterFieldCode
+              ? `新建字段 — 在 ${insertAfterFieldCode} 之后`
+              : '新建字段'
+        }
         open={fieldModalOpen}
-        onCancel={() => setFieldModalOpen(false)}
+        onCancel={() => {
+          setFieldModalOpen(false);
+          setInsertAfterFieldCode(null);
+        }}
         onOk={handleSaveField}
         width={480}
       >
+        {insertAfterFieldCode && !editingField && (
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            新字段将插入在 <Typography.Text code>{insertAfterFieldCode}</Typography.Text>{' '}
+            之后，其后字段排序自动顺延
+          </Typography.Paragraph>
+        )}
         <Form form={fieldForm} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="fieldCode" label="字段编码" rules={[{ required: true }]}>
             <Input />
@@ -591,7 +741,11 @@ export default function MetadataPage() {
               )}
             />
           </Form.Item>
-          <Form.Item name="sort" label="排序">
+          <Form.Item
+            name="sort"
+            label="排序"
+            tooltip="后插字段时自动计算；也可手动指定插入位置"
+          >
             <Input type="number" />
           </Form.Item>
         </Form>

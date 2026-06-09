@@ -74,6 +74,48 @@ public class MetricQueryCompilerTest {
     }
 
     @Test
+    public void shouldCompileMultipleMetricsWithSharedDimensions() {
+        MetricQueryRequest request = MetricQueryRequest.builder()
+                .metricCodes(Arrays.asList("profit", "cost"))
+                .build();
+
+        CompiledQuery result = compiler.compile(request);
+
+        Assert.assertTrue(result.getSql().contains("M0.dept"));
+        Assert.assertTrue(result.getSql().contains("M0.profit"));
+        Assert.assertTrue(result.getSql().contains("M1.cost"));
+        Assert.assertTrue(result.getSql().contains("M0.dept = M1.dept_code"));
+        Assert.assertTrue(result.getColumnLabels().containsKey("dept"));
+        Assert.assertTrue(result.getColumnLabels().containsKey("profit"));
+        Assert.assertTrue(result.getColumnLabels().containsKey("cost"));
+    }
+
+    @Test
+    public void shouldCompileCompositeMetricWithFilterOnlyInDependencies() {
+        MetricQueryRequest request = MetricQueryRequest.builder()
+                .metricCodes(Collections.singletonList("profit"))
+                .filters(Collections.singletonList(FilterCondition.builder()
+                        .field("fiscal_year")
+                        .operator(FilterOperator.IN)
+                        .values(Collections.singletonList("2024"))
+                        .build()))
+                .build();
+
+        CompiledQuery result = compiler.compile(request);
+        String sql = result.getSql();
+
+        int filterCount = 0;
+        int idx = 0;
+        String needle = "fiscal_year IN ('2024')";
+        while ((idx = sql.indexOf(needle, idx)) != -1) {
+            filterCount++;
+            idx += needle.length();
+        }
+        Assert.assertEquals(2, filterCount);
+        Assert.assertFalse(sql.matches("(?s).*INNER JOIN.*WHERE fiscal_year IN.*"));
+    }
+
+    @Test
     public void shouldCompileCompositeMetricByCode() {
         MetricQueryRequest request = MetricQueryRequest.builder()
                 .metricCodes(Collections.singletonList("profit"))
@@ -87,13 +129,19 @@ public class MetricQueryCompilerTest {
     }
 
     private static class StubDefinitionRepo implements MetricDefinitionRepository {
+        private final List<DimensionBinding> tableDimensions = Arrays.asList(
+                DimensionBinding.builder().dimensionCode("dept").fieldCode("dept_code")
+                        .fieldName("部门").sort(1).build(),
+                DimensionBinding.builder().dimensionCode("year").fieldCode("fiscal_year")
+                        .fieldName("年度").sort(2).build()
+        );
+
         private final MetricDefinition revenue = MetricDefinition.builder()
                 .code("revenue").name("收入").type(MetricType.TABLE)
                 .datasourceId("ds1").modelCode("m1")
                 .tableCode("orders").fieldCode("amount")
                 .aggregation(AggregationType.SUM).alias("revenue")
-                .dimensions(Collections.singletonList(
-                        DimensionBinding.builder().dimensionCode("dept").fieldCode("dept_code").fieldName("部门").build()))
+                .dimensions(tableDimensions)
                 .build();
 
         private final MetricDefinition cost = MetricDefinition.builder()
@@ -101,15 +149,13 @@ public class MetricQueryCompilerTest {
                 .datasourceId("ds1").modelCode("m1")
                 .tableCode("orders").fieldCode("cost_amount")
                 .aggregation(AggregationType.SUM).alias("cost")
-                .dimensions(Collections.singletonList(
-                        DimensionBinding.builder().dimensionCode("dept").fieldCode("dept_code").fieldName("部门").build()))
+                .dimensions(tableDimensions)
                 .build();
 
         private final MetricDefinition profit = MetricDefinition.builder()
                 .code("profit").name("利润").type(MetricType.COMPOSITE)
                 .datasourceId("ds1").formula("revenue - cost").alias("profit")
-                .dimensions(Collections.singletonList(
-                        DimensionBinding.builder().dimensionCode("dept").fieldCode("dept_code").fieldName("部门").build()))
+                .dimensions(tableDimensions)
                 .build();
 
         @Override

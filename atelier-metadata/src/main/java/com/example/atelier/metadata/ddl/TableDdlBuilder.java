@@ -19,6 +19,32 @@ public final class TableDdlBuilder {
     private TableDdlBuilder() {
     }
 
+    public static List<String> buildAddColumnStatements(DbType dbType,
+                                                        String schemaCode,
+                                                        String tableCode,
+                                                        List<MetaTableField> fields) {
+        validateIdentifier(tableCode, "表编码");
+        if (schemaCode != null && !schemaCode.trim().isEmpty()) {
+            validateIdentifier(schemaCode, "Schema");
+        }
+        if (fields == null || fields.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        DbType resolvedDbType = dbType != null ? dbType : DbType.UNKNOWN;
+        String qualifiedTable = qualifyTableName(schemaCode, tableCode);
+        List<String> statements = new ArrayList<>();
+        for (MetaTableField field : fields) {
+            String fieldCode = field.getFieldCode();
+            if (fieldCode == null || fieldCode.trim().isEmpty()) {
+                continue;
+            }
+            validateIdentifier(fieldCode, "字段编码");
+            statements.add(buildAddColumnStatement(resolvedDbType, qualifiedTable, field));
+        }
+        return statements;
+    }
+
     public static String build(DbType dbType, String schemaCode, String tableCode, List<MetaTableField> fields) {
         validateIdentifier(tableCode, "表编码");
         if (schemaCode != null && !schemaCode.trim().isEmpty()) {
@@ -54,6 +80,14 @@ public final class TableDdlBuilder {
         return schemaCode + "." + tableCode;
     }
 
+    private static String buildAddColumnStatement(DbType dbType, String qualifiedTable, MetaTableField field) {
+        String columnDef = buildAlterColumnDefinition(dbType, field);
+        if (dbType == DbType.ORACLE || dbType == DbType.DM) {
+            return "ALTER TABLE " + qualifiedTable + " ADD (" + columnDef + ")";
+        }
+        return "ALTER TABLE " + qualifiedTable + " ADD COLUMN " + columnDef;
+    }
+
     private static String buildColumnDefinition(DbType dbType, MetaTableField field) {
         String fieldCode = field.getFieldCode();
         boolean primaryKey = isPrimaryKeyField(fieldCode);
@@ -68,6 +102,14 @@ public final class TableDdlBuilder {
             column.append(" NOT NULL");
         }
         return column.toString();
+    }
+
+    /**
+     * 增量加列定义 — 已有数据的表不能 NOT NULL（无默认值时 H2/MySQL 等会复制数据失败）。
+     * 全量建表仍可在 {@link #buildColumnDefinition} 中保留 NOT NULL。
+     */
+    private static String buildAlterColumnDefinition(DbType dbType, MetaTableField field) {
+        return field.getFieldCode() + ' ' + mapColumnType(dbType, field);
     }
 
     private static boolean isPrimaryKeyField(String fieldCode) {

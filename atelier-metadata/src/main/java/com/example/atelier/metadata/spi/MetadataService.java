@@ -40,4 +40,7 @@ public interface MetadataService {
 
     /** 在目标数据源执行建表 DDL */
     void executeCreateTable(String tableId);
+
+    /** 在目标数据源执行增量加字段 DDL */
+    void executeSyncTable(String tableId);
 }
