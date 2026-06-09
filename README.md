@@ -14,6 +14,60 @@
 | Maven | 3.6+ |
 | Node.js | 18+（前端） |
 
+### 一键启动（推荐）
+
+项目根目录提供开发脚本，单终端完成编译、启动与日志跟踪：
+
+```bash
+cd /Volumes/S/IdeaProjects/yonyou/new-atelier
+
+# 启动（编译后端 + 构建前端 + 启动前后端 + 跟踪日志）
+scripts/start-dev.sh
+
+# 另开终端停止，或在启动终端按 Ctrl+C
+scripts/stop-dev.sh
+```
+
+| 脚本 | 说明 |
+|------|------|
+| [`scripts/start-dev.sh`](scripts/start-dev.sh) | `mvn clean install -DskipTests` → `npm install && npm run build` → 启动后端（8090）与前端（5173），日志输出到 `logs/` |
+| [`scripts/stop-dev.sh`](scripts/stop-dev.sh) | 优雅停止占用 8090 / 5173 的进程（先 SIGTERM，超时后 SIGKILL） |
+| [`scripts/dev-common.sh`](scripts/dev-common.sh) | 上述脚本的公共函数（进程树终止、端口释放），一般无需直接调用 |
+| [`scripts/smoke-test.sh`](scripts/smoke-test.sh) | 后端启动后的 API 冒烟测试（可选） |
+
+**日志文件：**
+
+| 文件 | 内容 |
+|------|------|
+| `logs/backend.log` | Spring Boot / Maven 输出 |
+| `logs/frontend.log` | Vite dev server 输出 |
+
+**环境变量（可选）：**
+
+本机 JDK / Maven 路径与默认不一致时，复制示例配置并按需修改：
+
+```bash
+cp scripts/.env.example scripts/.env
+# 编辑 JAVA_HOME、MAVEN_HOME、MAVEN_OPTS 等
+```
+
+`start-dev.sh` 启动时会自动 `source` 以下文件（按优先级）：
+
+1. 项目根目录 `.env`
+2. `scripts/.env`
+
+可通过环境变量覆盖默认端口：`BACKEND_PORT`（默认 8090）、`FRONTEND_PORT`（默认 5173）。
+
+**停止说明：**
+
+- 在 `start-dev.sh` 终端按 **Ctrl+C**，或另开终端执行 `scripts/stop-dev.sh`
+- 被外部停止后，`start-dev.sh` 会自动退出并提示「服务已停止」
+- 日志中 Maven 的 `BUILD FAILURE` / `exit code 143` 为 `spring-boot:run` 被正常终止时的表现，可忽略
+
+### 手动启动（双终端）
+
+如需分别调试前后端，可使用以下方式。
+
 ### 后端
 
 ```bash
@@ -54,22 +108,18 @@ npm run dev
 - `application.yml` 中 `atelier.datasources` 预置 `ds-demo` 数据源，与元数据库共用同一 H2 实例
 - **重启后数据清空**；生产环境请替换为 MySQL/PostgreSQL 等持久化数据库
 
-### 双终端一键体验
+### 验证 API
+
+后端启动后（`scripts/start-dev.sh` 或手动 `mvn spring-boot:run`）：
 
 ```bash
-# 终端 1 — 后端
-cd atelier-app && mvn spring-boot:run
+# 冒烟测试（推荐）
+scripts/smoke-test.sh
 
-# 终端 2 — 前端
-cd atelier-web && npm install && npm run dev
-```
-
-```bash
-# 验证 API（后端启动后）
+# 或手动 curl
 curl http://localhost:8090/api/v2/datasources
 curl http://localhost:8090/api/v2/metrics/definitions
 
-# 指标查询示例
 curl -X POST http://localhost:8090/api/v2/metrics/query \
   -H 'Content-Type: application/json' \
   -d '{"metricCodes":["revenue"],"filters":[{"field":"dept_code","operator":"IN","values":["001"]}]}'
@@ -258,7 +308,9 @@ new-atelier/
 ├── atelier-warning/         # 预警规则 + QLExpress 表达式桩
 ├── atelier-query/           # 查询编排（编译 + 执行 SPI）
 ├── atelier-api/             # REST 控制器（5 大管理域）
-└── atelier-app/             # Spring Boot 启动 + schema.sql / data.sql
+├── atelier-app/             # Spring Boot 启动 + schema.sql / data.sql
+├── atelier-web/             # React 管理控制台（Vite）
+└── scripts/                 # 开发脚本（start-dev.sh / stop-dev.sh / smoke-test.sh）
 ```
 
 ## 实体关系图
@@ -399,9 +451,10 @@ npm run dev
 
 ```bash
 cd /Volumes/S/IdeaProjects/yonyou/new-atelier
-mvn clean install
+scripts/start-dev.sh   # 一键启动前后端，详见上文「一键启动（推荐）」
 
-cd atelier-app && mvn spring-boot:run
+# 或手动仅启动后端后，用 curl 验证：
+# cd atelier-app && mvn spring-boot:run
 
 # 数据源
 curl http://localhost:8090/api/v2/datasources
