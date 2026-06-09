@@ -1,5 +1,5 @@
 import { deleteData, getData, postData } from './client';
-import type { MetaTable, MetaTableField, QueryResult } from './types';
+import type { MetaTable, MetaTableDdlResult, MetaTableField, QueryResult } from './types';
 
 export const metadataApi = {
   listTables: (datasourceId?: string) =>
@@ -16,4 +16,8 @@ export const metadataApi = {
     postData<MetaTable[]>(`/metadata/discover?datasourceId=${datasourceId}`),
   previewTable: (tableId: string, pageIndex = 1, pageSize = 20) =>
     getData<QueryResult>(`/metadata/tables/${tableId}/preview`, { pageIndex, pageSize }),
+  getCreateTableDdl: (tableId: string) =>
+    getData<MetaTableDdlResult>(`/metadata/tables/${tableId}/ddl`),
+  executeCreateTableDdl: (tableId: string) =>
+    postData<void>(`/metadata/tables/${tableId}/ddl/execute`),
 };

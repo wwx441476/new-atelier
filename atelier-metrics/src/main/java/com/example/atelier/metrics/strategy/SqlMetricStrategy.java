@@ -44,7 +44,7 @@ public class SqlMetricStrategy implements MetricCompileStrategy {
 
         String datasetSql = stripSemicolon(metric.getDatasetSql());
         String fromClause = "(" + datasetSql + ") DATASET_TMP";
-        String whereClause = WhereClauseBuilder.build(context.getFilters());
+        String whereClause = WhereClauseBuilder.resolve(context.getFilters(), context.getFilterGroups());
         String groupBy = buildGroupBy(metric);
 
         return SqlFragments.builder()

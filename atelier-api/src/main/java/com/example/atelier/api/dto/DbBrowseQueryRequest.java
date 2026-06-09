@@ -4,13 +4,11 @@ import lombok.Data;
 
 import java.util.List;
 
-/**
- * API 层查询请求 — 简化前端入参。
- */
 @Data
-public class MetricQueryApiRequest {
+public class DbBrowseQueryRequest {
 
-    private List<String> metricCodes;
+    /** 自定义 SELECT SQL */
+    private String sql;
 
     private List<FilterDto> filters;
 

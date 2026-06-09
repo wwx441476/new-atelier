@@ -1,6 +1,7 @@
 package com.example.atelier.metrics.compiler;
 
 import com.example.atelier.domain.metric.FilterCondition;
+import com.example.atelier.domain.metric.FilterGroup;
 import com.example.atelier.domain.metric.MetricDefinition;
 import com.example.atelier.domain.model.MetricModel;
 import lombok.Builder;
@@ -21,6 +22,8 @@ public class CompileContext {
     MetricModel model;
 
     List<FilterCondition> filters;
+
+    List<FilterGroup> filterGroups;
 
     /** 复合指标：已解析的依赖指标定义 code -> definition */
     Map<String, MetricDefinition> dependencyMetrics;

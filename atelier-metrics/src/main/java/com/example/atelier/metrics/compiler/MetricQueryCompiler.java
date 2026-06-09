@@ -121,6 +121,7 @@ public class MetricQueryCompiler {
                 .metric(metric)
                 .model(model)
                 .filters(request.getFilters())
+                .filterGroups(request.getFilterGroups())
                 .dependencyMetrics(deps)
                 .dependencyFromClauses(depFromClauses)
                 .build();

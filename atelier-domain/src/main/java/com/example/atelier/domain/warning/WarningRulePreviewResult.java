@@ -23,6 +23,9 @@ public class WarningRulePreviewResult {
 
     private String expression;
 
+    /** 关联指标编译后的查询 SQL */
+    private String sql;
+
     /** 指标数据总行数 */
     private long total;
 

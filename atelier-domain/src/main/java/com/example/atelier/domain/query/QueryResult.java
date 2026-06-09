@@ -22,4 +22,7 @@ public class QueryResult {
     private List<Map<String, Object>> rows;
 
     private Map<String, String> headers;
+
+    /** 查询 SQL（预览场景返回） */
+    private String sql;
 }

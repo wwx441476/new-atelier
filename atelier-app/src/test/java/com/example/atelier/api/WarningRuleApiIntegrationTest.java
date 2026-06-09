@@ -75,6 +75,8 @@ public class WarningRuleApiIntegrationTest {
         assertNotNull(preview);
         assertEquals("利润过低预警", preview.getRuleName());
         assertEquals("profit < 500", preview.getExpression());
+        assertNotNull(preview.getSql());
+        assertTrue(preview.getSql().contains("profit"));
         assertTrue(preview.getTotal() > 0);
         assertNotNull(preview.getRows());
         assertTrue(preview.getRows().stream().anyMatch(r -> Boolean.TRUE.equals(r.get("_triggered"))));

@@ -1,6 +1,7 @@
 package com.example.atelier.metadata.spi;
 
 import com.example.atelier.domain.metadata.MetaTable;
+import com.example.atelier.domain.metadata.MetaTableDdlResult;
 import com.example.atelier.domain.metadata.MetaTableField;
 import com.example.atelier.domain.query.QueryResult;
 
@@ -33,4 +34,10 @@ public interface MetadataService {
 
     /** 分页预览元数据表对应的物理表数据 */
     QueryResult previewTableData(String tableId, int pageIndex, int pageSize);
+
+    /** 根据元数据字段生成建表 DDL */
+    MetaTableDdlResult buildCreateTableDdl(String tableId);
+
+    /** 在目标数据源执行建表 DDL */
+    void executeCreateTable(String tableId);
 }

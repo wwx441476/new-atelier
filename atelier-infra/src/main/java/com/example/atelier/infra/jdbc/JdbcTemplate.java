@@ -42,4 +42,15 @@ public class JdbcTemplate {
             throw new AtelierException("COUNT 查询失败: " + countSql, e);
         }
     }
+
+    /**
+     * 执行 DDL / DML 更新语句。
+     */
+    public void execute(Connection connection, String sql) {
+        try {
+            queryRunner.update(connection, sql);
+        } catch (SQLException e) {
+            throw new AtelierException("SQL 执行失败: " + e.getMessage(), e);
+        }
+    }
 }

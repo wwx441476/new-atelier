@@ -28,6 +28,36 @@ export interface TestConnectionResult {
   message: string;
 }
 
+export interface DbSchemaInfo {
+  name: string;
+  catalog?: string;
+}
+
+export interface DbTableInfo {
+  schema?: string;
+  name: string;
+  type?: string;
+  remarks?: string;
+}
+
+export interface DbColumnInfo {
+  name: string;
+  typeName?: string;
+  columnSize?: number;
+  decimalDigits?: number;
+  nullable?: boolean;
+  remarks?: string;
+  ordinalPosition?: number;
+}
+
+export interface DbBrowseQueryRequest {
+  sql?: string;
+  filters?: FilterConditionDto[];
+  filterGroups?: FilterGroupDto[];
+  pageIndex?: number;
+  pageSize?: number;
+}
+
 export interface MetaTable {
   id?: string;
   catalogCode?: string;
@@ -36,6 +66,13 @@ export interface MetaTable {
   datasourceId: string;
   comments?: string;
   fields?: MetaTableField[];
+}
+
+export interface MetaTableDdlResult {
+  ddl: string;
+  tableExists: boolean;
+  datasourceId: string;
+  tableCode: string;
 }
 
 export interface MetaTableField {
@@ -104,13 +141,20 @@ export interface MetricDefinition {
   displayFields?: string[];
 }
 
+export interface FilterConditionDto {
+  field: string;
+  operator: string;
+  values: string[];
+}
+
+export interface FilterGroupDto {
+  conditions: FilterConditionDto[];
+}
+
 export interface MetricQueryRequest {
   metricCodes: string[];
-  filters?: Array<{
-    field: string;
-    operator: string;
-    values: string[];
-  }>;
+  filters?: FilterConditionDto[];
+  filterGroups?: FilterGroupDto[];
   pageIndex?: number;
   pageSize?: number;
 }
@@ -119,12 +163,13 @@ export interface QueryResult {
   total: number;
   rows: Record<string, unknown>[];
   headers?: Record<string, string>;
+  sql?: string;
 }
 
 export interface SqlPreviewResult {
   sql: string;
   datasourceId: string;
-  columns: string[];
+  columns: string[] | Record<string, string>;
 }
 
 export interface WarningRule {
@@ -144,6 +189,7 @@ export interface WarningRulePreviewResult {
   ruleId: string;
   ruleName: string;
   expression: string;
+  sql?: string;
   total: number;
   matchedCount: number;
   rows: Record<string, unknown>[];

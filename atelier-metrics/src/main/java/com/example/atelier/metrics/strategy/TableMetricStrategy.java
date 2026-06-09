@@ -42,7 +42,7 @@ public class TableMetricStrategy implements MetricCompileStrategy {
         }
 
         String fromClause = buildFromClause(model);
-        String whereClause = WhereClauseBuilder.build(context.getFilters());
+        String whereClause = WhereClauseBuilder.resolve(context.getFilters(), context.getFilterGroups());
         String groupBy = buildGroupBy(metric);
 
         return SqlFragments.builder()

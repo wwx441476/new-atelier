@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
   Button,
   Form,
   Input,
@@ -11,12 +12,19 @@ import {
   Typography,
   message,
 } from 'antd';
-import { EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { CodeOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageHeader from '../components/PageHeader';
+import SqlPreviewBlock from '../components/SqlPreviewBlock';
 import { metadataApi } from '../api/metadata';
 import { datasourceApi } from '../api/datasource';
-import type { DataSourceResponse, MetaTable, MetaTableField, QueryResult } from '../api/types';
+import type {
+  DataSourceResponse,
+  MetaTable,
+  MetaTableDdlResult,
+  MetaTableField,
+  QueryResult,
+} from '../api/types';
 
 export default function MetadataPage() {
   const [loading, setLoading] = useState(false);
@@ -36,6 +44,12 @@ export default function MetadataPage() {
   const [previewTable, setPreviewTable] = useState<MetaTable | null>(null);
   const [previewResult, setPreviewResult] = useState<QueryResult | null>(null);
   const [previewPage, setPreviewPage] = useState({ pageIndex: 1, pageSize: 20 });
+  const [previewError, setPreviewError] = useState(false);
+  const [ddlModalOpen, setDdlModalOpen] = useState(false);
+  const [ddlLoading, setDdlLoading] = useState(false);
+  const [ddlExecuting, setDdlExecuting] = useState(false);
+  const [ddlTable, setDdlTable] = useState<MetaTable | null>(null);
+  const [ddlResult, setDdlResult] = useState<MetaTableDdlResult | null>(null);
 
   const loadTables = useCallback(async () => {
     setLoading(true);
@@ -106,12 +120,14 @@ export default function MetadataPage() {
       return;
     }
     setPreviewLoading(true);
+    setPreviewError(false);
     try {
       const result = await metadataApi.previewTable(table.id, pageIndex, pageSize);
       setPreviewResult(result);
       setPreviewPage({ pageIndex, pageSize });
     } catch {
       setPreviewResult(null);
+      setPreviewError(true);
     } finally {
       setPreviewLoading(false);
     }
@@ -120,9 +136,37 @@ export default function MetadataPage() {
   const openPreview = (record: MetaTable) => {
     setPreviewTable(record);
     setPreviewResult(null);
+    setPreviewError(false);
     setPreviewPage({ pageIndex: 1, pageSize: 20 });
     setPreviewModalOpen(true);
     loadPreview(record, 1, 20);
+  };
+
+  const openDdl = async (record: MetaTable) => {
+    if (!record.id) return;
+    setDdlTable(record);
+    setDdlResult(null);
+    setDdlModalOpen(true);
+    setDdlLoading(true);
+    try {
+      setDdlResult(await metadataApi.getCreateTableDdl(record.id));
+    } catch {
+      setDdlResult(null);
+    } finally {
+      setDdlLoading(false);
+    }
+  };
+
+  const handleExecuteDdl = async () => {
+    if (!ddlTable?.id) return;
+    setDdlExecuting(true);
+    try {
+      await metadataApi.executeCreateTableDdl(ddlTable.id);
+      message.success('建表 SQL 已执行');
+      setDdlResult(await metadataApi.getCreateTableDdl(ddlTable.id));
+    } finally {
+      setDdlExecuting(false);
+    }
   };
 
   const handleSaveField = async () => {
@@ -144,7 +188,7 @@ export default function MetadataPage() {
     { title: '备注', dataIndex: 'comments', ellipsis: true },
     {
       title: '操作',
-      width: 220,
+      width: 300,
       render: (_, record) => (
         <Space>
           <Button
@@ -154,6 +198,14 @@ export default function MetadataPage() {
             onClick={() => openPreview(record)}
           >
             预览数据
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            icon={<CodeOutlined />}
+            onClick={() => openDdl(record)}
+          >
+            建表 DDL
           </Button>
           <Button type="link" size="small" onClick={() => openEditTable(record)}>
             编辑
@@ -317,6 +369,27 @@ export default function MetadataPage() {
         <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
           数据源: {previewTable?.datasourceId} · 表名: {previewTable?.tableName}
         </Typography.Paragraph>
+        {previewError && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="数据预览失败，物理表可能尚未创建"
+            action={
+              previewTable ? (
+                <Button size="small" onClick={() => openDdl(previewTable)}>
+                  查看建表 DDL
+                </Button>
+              ) : undefined
+            }
+          />
+        )}
+        {previewResult?.sql && (
+          <div style={{ marginBottom: 16 }}>
+            <Typography.Text strong>预览 SQL</Typography.Text>
+            <SqlPreviewBlock sql={previewResult.sql} maxHeight={120} />
+          </div>
+        )}
         <Table
           rowKey={(_, i) => String(i)}
           size="small"
@@ -338,6 +411,53 @@ export default function MetadataPage() {
             },
           }}
         />
+      </Modal>
+
+      <Modal
+        title={`建表 DDL — ${ddlTable?.tableCode || ''}`}
+        open={ddlModalOpen}
+        onCancel={() => setDdlModalOpen(false)}
+        footer={
+          <Space>
+            <Button onClick={() => setDdlModalOpen(false)}>关闭</Button>
+            <Popconfirm
+              title={`确认在数据源 ${ddlResult?.datasourceId || ''} 执行建表？`}
+              description="将在目标数据库创建物理表，请确认 DDL 无误。"
+              onConfirm={handleExecuteDdl}
+              disabled={!ddlResult || ddlResult.tableExists || ddlLoading}
+            >
+              <Button
+                type="primary"
+                loading={ddlExecuting}
+                disabled={!ddlResult || ddlResult.tableExists || ddlLoading}
+              >
+                执行建表
+              </Button>
+            </Popconfirm>
+          </Space>
+        }
+        width={800}
+        styles={{ body: { maxHeight: '70vh', overflow: 'auto' } }}
+      >
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+          数据源: {ddlResult?.datasourceId || ddlTable?.datasourceId} · 物理表:{' '}
+          {ddlResult?.tableCode || ddlTable?.tableCode}
+        </Typography.Paragraph>
+        {ddlResult?.tableExists && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="物理表已存在，无需重复建表"
+          />
+        )}
+        {ddlLoading ? (
+          <Typography.Text type="secondary">加载 DDL 中...</Typography.Text>
+        ) : ddlResult?.ddl ? (
+          <SqlPreviewBlock sql={ddlResult.ddl} />
+        ) : (
+          <Typography.Text type="secondary">暂无 DDL，请先配置字段定义</Typography.Text>
+        )}
       </Modal>
 
       <Modal

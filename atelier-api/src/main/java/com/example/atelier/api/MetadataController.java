@@ -2,6 +2,7 @@ package com.example.atelier.api;
 
 import com.example.atelier.api.dto.ApiResponse;
 import com.example.atelier.domain.metadata.MetaTable;
+import com.example.atelier.domain.metadata.MetaTableDdlResult;
 import com.example.atelier.domain.metadata.MetaTableField;
 import com.example.atelier.domain.query.QueryResult;
 import com.example.atelier.metadata.spi.MetadataService;
@@ -84,5 +85,16 @@ public class MetadataController {
             @RequestParam(value = "pageIndex", defaultValue = "1") int pageIndex,
             @RequestParam(value = "pageSize", defaultValue = "20") int pageSize) {
         return ApiResponse.ok(metadataService.previewTableData(id, pageIndex, pageSize));
+    }
+
+    @GetMapping("/tables/{id}/ddl")
+    public ApiResponse<MetaTableDdlResult> getCreateTableDdl(@PathVariable String id) {
+        return ApiResponse.ok(metadataService.buildCreateTableDdl(id));
+    }
+
+    @PostMapping("/tables/{id}/ddl/execute")
+    public ApiResponse<Void> executeCreateTableDdl(@PathVariable String id) {
+        metadataService.executeCreateTable(id);
+        return ApiResponse.ok(null);
     }
 }

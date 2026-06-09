@@ -3,6 +3,7 @@ package com.example.atelier.metrics.compiler;
 import com.example.atelier.domain.metric.AggregationType;
 import com.example.atelier.domain.metric.DimensionBinding;
 import com.example.atelier.domain.metric.FilterCondition;
+import com.example.atelier.domain.metric.FilterGroup;
 import com.example.atelier.domain.metric.FilterOperator;
 import com.example.atelier.domain.metric.MetricDefinition;
 import com.example.atelier.domain.metric.MetricType;
@@ -44,6 +45,32 @@ public class MetricQueryCompilerTest {
 
         Assert.assertTrue(result.getSql().contains("SUM(orders.amount)"));
         Assert.assertTrue(result.getSql().contains("dept_code IN ('001', '002')"));
+    }
+
+    @Test
+    public void shouldCompileTableMetricWithOrFilterGroups() {
+        MetricQueryRequest request = MetricQueryRequest.builder()
+                .metricCodes(Collections.singletonList("revenue"))
+                .filterGroups(Arrays.asList(
+                        FilterGroup.builder().conditions(Arrays.asList(
+                                FilterCondition.builder().field("dept_code").operator(FilterOperator.IN)
+                                        .values(Collections.singletonList("001")).build(),
+                                FilterCondition.builder().field("fiscal_year").operator(FilterOperator.IN)
+                                        .values(Collections.singletonList("2024")).build()
+                        )).build(),
+                        FilterGroup.builder().conditions(Arrays.asList(
+                                FilterCondition.builder().field("dept_code").operator(FilterOperator.IN)
+                                        .values(Collections.singletonList("002")).build(),
+                                FilterCondition.builder().field("fiscal_year").operator(FilterOperator.IN)
+                                        .values(Collections.singletonList("2025")).build()
+                        )).build()
+                ))
+                .build();
+
+        CompiledQuery result = compiler.compile(request);
+
+        Assert.assertTrue(result.getSql().contains(
+                "(dept_code IN ('001') AND fiscal_year IN ('2024')) OR (dept_code IN ('002') AND fiscal_year IN ('2025'))"));
     }
 
     @Test

@@ -2,6 +2,10 @@ package com.example.atelier.api;
 
 import com.example.atelier.api.dto.ApiResponse;
 import com.example.atelier.api.dto.DataSourceResponse;
+import com.example.atelier.domain.datasource.DbColumnInfo;
+import com.example.atelier.domain.datasource.DbSchemaInfo;
+import com.example.atelier.domain.datasource.DbTableInfo;
+import com.example.atelier.domain.query.QueryResult;
 import com.example.atelier.infra.datasource.DataSourceRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -15,6 +19,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 
 import java.sql.Connection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -120,6 +125,103 @@ public class DataSourceApiIntegrationTest {
                 });
         assertEquals(0, testResponse.getBody().getCode());
         assertEquals(true, testResponse.getBody().getData().get("success"));
+    }
+
+    @Test
+    public void browseSchemas_shouldReturnPublicForDemoH2() {
+        ResponseEntity<ApiResponse<List<DbSchemaInfo>>> response = restTemplate.exchange(
+                baseUrl() + "/datasources/ds-demo/browse/schemas",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<ApiResponse<List<DbSchemaInfo>>>() {
+                });
+        assertEquals(0, response.getBody().getCode());
+        assertTrue(response.getBody().getData().stream()
+                .anyMatch(schema -> "PUBLIC".equalsIgnoreCase(schema.getName())));
+    }
+
+    @Test
+    public void browseTables_shouldReturnOrdersInPublicSchema() {
+        ResponseEntity<ApiResponse<List<DbTableInfo>>> response = restTemplate.exchange(
+                baseUrl() + "/datasources/ds-demo/browse/tables?schema=PUBLIC",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<ApiResponse<List<DbTableInfo>>>() {
+                });
+        assertEquals(0, response.getBody().getCode());
+        assertTrue(response.getBody().getData().stream()
+                .anyMatch(table -> "orders".equalsIgnoreCase(table.getName())));
+    }
+
+    @Test
+    public void browseColumns_shouldReturnOrdersColumns() {
+        ResponseEntity<ApiResponse<List<DbColumnInfo>>> response = restTemplate.exchange(
+                baseUrl() + "/datasources/ds-demo/browse/tables/orders/columns?schema=PUBLIC",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<ApiResponse<List<DbColumnInfo>>>() {
+                });
+        assertEquals(0, response.getBody().getCode());
+        assertTrue(response.getBody().getData().stream()
+                .anyMatch(column -> "dept_code".equalsIgnoreCase(column.getName())));
+    }
+
+    @Test
+    public void browsePreview_shouldReturnOrdersData() {
+        ResponseEntity<ApiResponse<QueryResult>> response = restTemplate.exchange(
+                baseUrl() + "/datasources/ds-demo/browse/tables/orders/preview?schema=PUBLIC&pageIndex=1&pageSize=20",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<ApiResponse<QueryResult>>() {
+                });
+        assertEquals(0, response.getBody().getCode());
+        QueryResult result = response.getBody().getData();
+        assertNotNull(result);
+        assertTrue(result.getTotal() > 0);
+        assertNotNull(result.getSql());
+        assertTrue(result.getSql().contains("orders"));
+    }
+
+    @Test
+    public void browseTableQuery_shouldFilterOrdersByDeptCode() {
+        Map<String, Object> body = new HashMap<>();
+        body.put("pageIndex", 1);
+        body.put("pageSize", 20);
+        Map<String, Object> filter = new HashMap<>();
+        filter.put("field", "dept_code");
+        filter.put("operator", "IN");
+        filter.put("values", Collections.singletonList("001"));
+        body.put("filters", Collections.singletonList(filter));
+
+        ResponseEntity<ApiResponse<QueryResult>> response = restTemplate.exchange(
+                baseUrl() + "/datasources/ds-demo/browse/tables/orders/query?schema=PUBLIC",
+                HttpMethod.POST,
+                new HttpEntity<>(body),
+                new ParameterizedTypeReference<ApiResponse<QueryResult>>() {
+                });
+        assertEquals(0, response.getBody().getCode());
+        QueryResult result = response.getBody().getData();
+        assertEquals(2, result.getTotal());
+        assertTrue(result.getSql().contains("dept_code IN ('001')"));
+    }
+
+    @Test
+    public void browseExecuteSql_shouldRunCustomSelect() {
+        Map<String, Object> body = new HashMap<>();
+        body.put("sql", "SELECT dept_code, amount FROM PUBLIC.orders WHERE dept_code = '002'");
+        body.put("pageIndex", 1);
+        body.put("pageSize", 20);
+
+        ResponseEntity<ApiResponse<QueryResult>> response = restTemplate.exchange(
+                baseUrl() + "/datasources/ds-demo/browse/query",
+                HttpMethod.POST,
+                new HttpEntity<>(body),
+                new ParameterizedTypeReference<ApiResponse<QueryResult>>() {
+                });
+        assertEquals(0, response.getBody().getCode());
+        QueryResult result = response.getBody().getData();
+        assertEquals(2, result.getTotal());
+        assertEquals(2, result.getRows().get(0).size());
     }
 
     private String baseUrl() {

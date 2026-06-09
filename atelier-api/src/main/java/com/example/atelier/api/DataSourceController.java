@@ -3,11 +3,20 @@ package com.example.atelier.api;
 import com.example.atelier.api.dto.ApiResponse;
 import com.example.atelier.api.dto.DataSourceRequest;
 import com.example.atelier.api.dto.DataSourceResponse;
+import com.example.atelier.api.dto.DbBrowseQueryRequest;
+import com.example.atelier.domain.datasource.DbColumnInfo;
+import com.example.atelier.domain.metric.FilterCondition;
+import com.example.atelier.domain.metric.FilterGroup;
+import com.example.atelier.domain.metric.FilterOperator;
+import com.example.atelier.domain.datasource.DbSchemaInfo;
+import com.example.atelier.domain.datasource.DbTableInfo;
+import com.example.atelier.domain.query.QueryResult;
 import com.example.atelier.infra.datasource.ConnectionTester;
 import com.example.atelier.infra.datasource.DataSourceConfig;
 import com.example.atelier.infra.datasource.DataSourceRegistry;
 import com.example.atelier.infra.datasource.DbType;
 import com.example.atelier.infra.exception.AtelierException;
+import com.example.atelier.infra.jdbc.DatabaseBrowserService;
 import com.example.atelier.infra.persistence.service.DataSourcePersistenceService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,6 +24,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
@@ -31,11 +41,14 @@ public class DataSourceController {
 
     private final DataSourcePersistenceService persistenceService;
     private final DataSourceRegistry registry;
+    private final DatabaseBrowserService databaseBrowserService;
 
     public DataSourceController(DataSourcePersistenceService persistenceService,
-                                DataSourceRegistry registry) {
+                                DataSourceRegistry registry,
+                                DatabaseBrowserService databaseBrowserService) {
         this.persistenceService = persistenceService;
         this.registry = registry;
+        this.databaseBrowserService = databaseBrowserService;
     }
 
     @GetMapping
@@ -81,6 +94,57 @@ public class DataSourceController {
         return ApiResponse.ok(result);
     }
 
+    @GetMapping("/{id}/browse/schemas")
+    public ApiResponse<List<DbSchemaInfo>> browseSchemas(@PathVariable String id) {
+        return ApiResponse.ok(databaseBrowserService.listSchemas(id));
+    }
+
+    @GetMapping("/{id}/browse/tables")
+    public ApiResponse<List<DbTableInfo>> browseTables(
+            @PathVariable String id,
+            @RequestParam(value = "schema", required = false) String schema) {
+        return ApiResponse.ok(databaseBrowserService.listTables(id, schema));
+    }
+
+    @GetMapping("/{id}/browse/tables/{table}/columns")
+    public ApiResponse<List<DbColumnInfo>> browseColumns(
+            @PathVariable String id,
+            @PathVariable String table,
+            @RequestParam(value = "schema", required = false) String schema) {
+        return ApiResponse.ok(databaseBrowserService.listColumns(id, schema, table));
+    }
+
+    @GetMapping("/{id}/browse/tables/{table}/preview")
+    public ApiResponse<QueryResult> browsePreview(
+            @PathVariable String id,
+            @PathVariable String table,
+            @RequestParam(value = "schema", required = false) String schema,
+            @RequestParam(value = "pageIndex", defaultValue = "1") int pageIndex,
+            @RequestParam(value = "pageSize", defaultValue = "20") int pageSize) {
+        return ApiResponse.ok(databaseBrowserService.previewTableData(id, schema, table, pageIndex, pageSize));
+    }
+
+    @PostMapping("/{id}/browse/query")
+    public ApiResponse<QueryResult> browseExecuteSql(
+            @PathVariable String id,
+            @RequestBody DbBrowseQueryRequest request) {
+        return ApiResponse.ok(databaseBrowserService.executeSelectQuery(
+                id, request.getSql(), request.getPageIndex(), request.getPageSize()));
+    }
+
+    @PostMapping("/{id}/browse/tables/{table}/query")
+    public ApiResponse<QueryResult> browseTableQuery(
+            @PathVariable String id,
+            @PathVariable String table,
+            @RequestParam(value = "schema", required = false) String schema,
+            @RequestBody DbBrowseQueryRequest request) {
+        FilterConversion conversion = toFilterConversion(request);
+        return ApiResponse.ok(databaseBrowserService.previewTableWithFilters(
+                id, schema, table,
+                conversion.filters, conversion.filterGroups,
+                request.getPageIndex(), request.getPageSize()));
+    }
+
     private DataSourceConfig toConfig(DataSourceRequest request) {
         if (request.getId() == null || request.getId().trim().isEmpty()) {
             throw new AtelierException("数据源 id 不能为空");
@@ -105,5 +169,57 @@ public class DataSourceController {
                 .dbType(config.getDbType() != null ? config.getDbType().name() : DbType.UNKNOWN.name())
                 .enabled(config.isEnabled())
                 .build();
+    }
+
+    private FilterConversion toFilterConversion(DbBrowseQueryRequest request) {
+        List<FilterCondition> filters = null;
+        if (request.getFilters() != null) {
+            filters = request.getFilters().stream()
+                    .map(this::toFilterCondition)
+                    .collect(Collectors.toList());
+        }
+        List<FilterGroup> filterGroups = null;
+        if (request.getFilterGroups() != null) {
+            filterGroups = request.getFilterGroups().stream()
+                    .map(group -> FilterGroup.builder()
+                            .conditions(group.getConditions() == null ? null :
+                                    group.getConditions().stream()
+                                            .map(this::toFilterCondition)
+                                            .collect(Collectors.toList()))
+                            .build())
+                    .collect(Collectors.toList());
+        }
+        return new FilterConversion(filters, filterGroups);
+    }
+
+    private FilterCondition toFilterCondition(DbBrowseQueryRequest.FilterDto filter) {
+        return FilterCondition.builder()
+                .field(filter.getField())
+                .operator(parseOperator(filter.getOperator()))
+                .values(filter.getValues())
+                .build();
+    }
+
+    private FilterOperator parseOperator(String operator) {
+        if (operator == null || operator.trim().isEmpty()) {
+            throw new IllegalArgumentException("过滤运算符不能为空");
+        }
+        String normalized = operator.toUpperCase().replace(" ", "_");
+        if ("GTE".equals(normalized)) {
+            normalized = "GE";
+        } else if ("LTE".equals(normalized)) {
+            normalized = "LE";
+        }
+        return FilterOperator.valueOf(normalized);
+    }
+
+    private static final class FilterConversion {
+        private final List<FilterCondition> filters;
+        private final List<FilterGroup> filterGroups;
+
+        private FilterConversion(List<FilterCondition> filters, List<FilterGroup> filterGroups) {
+            this.filters = filters;
+            this.filterGroups = filterGroups;
+        }
     }
 }

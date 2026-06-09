@@ -1,7 +1,9 @@
 package com.example.atelier.metadata.service;
 
 import com.example.atelier.domain.metadata.MetaTable;
+import com.example.atelier.domain.metadata.MetaTableDdlResult;
 import com.example.atelier.domain.metadata.MetaTableField;
+import com.example.atelier.metadata.ddl.TableDdlBuilder;
 import com.example.atelier.domain.query.QueryResult;
 import com.example.atelier.infra.datasource.DataSourceConfig;
 import com.example.atelier.infra.datasource.DataSourceRegistry;
@@ -152,6 +154,53 @@ public class MetadataServiceImpl implements MetadataService {
     }
 
     @Override
+    public MetaTableDdlResult buildCreateTableDdl(String tableId) {
+        MetaTableEntity entity = resolveTableEntity(tableId)
+                .orElseThrow(() -> new AtelierException("元数据表不存在: " + tableId));
+        String tableCode = entity.getTableCode();
+        validateTableCode(tableCode);
+
+        String datasourceId = entity.getPkDatasource();
+        DataSourceConfig config = dataSourceRegistry.getConfig(datasourceId);
+        if (config == null) {
+            throw new AtelierException("数据源不存在: " + datasourceId);
+        }
+        DbType dbType = config.getDbType() != null ? config.getDbType() : DbType.UNKNOWN;
+        List<MetaTableField> fields = listFields(entity.getPkMetaTable());
+        String ddl = TableDdlBuilder.build(dbType, tableCode, fields);
+
+        boolean tableExists = false;
+        try (Connection connection = dataSourceRegistry.getConnection(datasourceId)) {
+            tableExists = physicalTableExists(connection, tableCode);
+        } catch (Exception e) {
+            throw new AtelierException("检查物理表是否存在失败: " + e.getMessage(), e);
+        }
+
+        return MetaTableDdlResult.builder()
+                .ddl(ddl)
+                .tableExists(tableExists)
+                .datasourceId(datasourceId)
+                .tableCode(tableCode)
+                .build();
+    }
+
+    @Override
+    public void executeCreateTable(String tableId) {
+        MetaTableDdlResult ddlResult = buildCreateTableDdl(tableId);
+        if (ddlResult.isTableExists()) {
+            throw new AtelierException("物理表已存在: " + ddlResult.getTableCode());
+        }
+
+        try (Connection connection = dataSourceRegistry.getConnection(ddlResult.getDatasourceId())) {
+            jdbcTemplate.execute(connection, ddlResult.getDdl());
+        } catch (AtelierException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AtelierException("建表执行失败: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public QueryResult previewTableData(String tableId, int pageIndex, int pageSize) {
         MetaTableEntity entity = resolveTableEntity(tableId)
                 .orElseThrow(() -> new AtelierException("元数据表不存在: " + tableId));
@@ -167,19 +216,23 @@ public class MetadataServiceImpl implements MetadataService {
 
         int page = pageIndex <= 0 ? 1 : pageIndex;
         int size = pageSize <= 0 ? 20 : pageSize;
-        String sql = "SELECT * FROM " + tableCode;
+        List<MetaTableField> previewFields = listFields(entity.getPkMetaTable());
+        String sql = buildPreviewSql(tableCode, previewFields);
 
         try (Connection connection = dataSourceRegistry.getConnection(datasourceId)) {
             long total = jdbcTemplate.count(connection, sql);
             List<Map<String, Object>> rows = Collections.emptyList();
             if (total > 0) {
                 String pageSql = PageSqlBuilder.build(dbType, sql, page, size);
-                rows = QueryResultMapper.mapRows(jdbcTemplate.queryForList(connection, pageSql), dbType);
+                rows = filterPreviewRows(
+                        QueryResultMapper.mapRows(jdbcTemplate.queryForList(connection, pageSql), dbType),
+                        previewFields);
             }
             return QueryResult.builder()
                     .total(total)
                     .rows(rows)
-                    .headers(buildPreviewHeaders(entity.getPkMetaTable(), rows))
+                    .headers(buildPreviewHeaders(previewFields))
+                    .sql(sql)
                     .build();
         } catch (AtelierException e) {
             throw e;
@@ -212,18 +265,91 @@ public class MetadataServiceImpl implements MetadataService {
         }
     }
 
-    private Map<String, String> buildPreviewHeaders(String tableId, List<Map<String, Object>> rows) {
+    private boolean physicalTableExists(Connection connection, String tableCode) throws java.sql.SQLException {
+        DatabaseMetaData metaData = connection.getMetaData();
+        String catalog = connection.getCatalog();
+        String schema = resolveSchema(connection);
+        try (ResultSet rs = metaData.getTables(catalog, schema, tableCode, new String[]{"TABLE"})) {
+            if (rs.next()) {
+                return true;
+            }
+        }
+        if (!tableCode.equals(tableCode.toUpperCase())) {
+            try (ResultSet rs = metaData.getTables(catalog, schema, tableCode.toUpperCase(), new String[]{"TABLE"})) {
+                return rs.next();
+            }
+        }
+        return false;
+    }
+
+    private String resolveSchema(Connection connection) throws java.sql.SQLException {
+        String schema = connection.getSchema();
+        if (schema != null && !schema.isEmpty()) {
+            return schema;
+        }
+        String user = connection.getMetaData().getUserName();
+        return user != null ? user.toUpperCase() : null;
+    }
+
+    private String buildPreviewSql(String tableCode, List<MetaTableField> fields) {
+        List<String> fieldCodes = resolvePreviewFieldCodes(fields);
+        if (fieldCodes.isEmpty()) {
+            return "SELECT * FROM " + tableCode;
+        }
+        return "SELECT " + String.join(", ", fieldCodes) + " FROM " + tableCode;
+    }
+
+    private List<String> resolvePreviewFieldCodes(List<MetaTableField> fields) {
+        if (fields == null || fields.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> codes = new ArrayList<>();
+        for (MetaTableField field : fields) {
+            String code = field.getFieldCode();
+            if (code == null || code.trim().isEmpty()) {
+                continue;
+            }
+            validateFieldCode(code);
+            codes.add(code);
+        }
+        return codes;
+    }
+
+    private List<Map<String, Object>> filterPreviewRows(List<Map<String, Object>> rows,
+                                                        List<MetaTableField> fields) {
+        List<String> fieldCodes = resolvePreviewFieldCodes(fields);
+        if (fieldCodes.isEmpty() || rows == null || rows.isEmpty()) {
+            return rows;
+        }
+        List<String> normalizedCodes = fieldCodes.stream()
+                .map(String::toLowerCase)
+                .collect(Collectors.toList());
+        List<Map<String, Object>> filtered = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> mapped = new LinkedHashMap<>();
+            for (String code : normalizedCodes) {
+                if (row.containsKey(code)) {
+                    mapped.put(code, row.get(code));
+                }
+            }
+            filtered.add(mapped);
+        }
+        return filtered;
+    }
+
+    private void validateFieldCode(String fieldCode) {
+        if (!SAFE_TABLE_CODE.matcher(fieldCode).matches()) {
+            throw new AtelierException("非法字段编码，仅允许字母、数字与下划线: " + fieldCode);
+        }
+    }
+
+    private Map<String, String> buildPreviewHeaders(List<MetaTableField> fields) {
         Map<String, String> headers = new LinkedHashMap<>();
-        for (MetaTableField field : listFields(tableId)) {
+        for (MetaTableField field : fields) {
             String code = field.getFieldCode();
             if (code != null) {
                 headers.put(code.toLowerCase(),
                         field.getFieldName() != null ? field.getFieldName() : code);
-            }
-        }
-        if (rows != null && !rows.isEmpty()) {
-            for (String key : rows.get(0).keySet()) {
-                headers.putIfAbsent(key, key);
             }
         }
         return headers;

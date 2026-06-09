@@ -12,9 +12,10 @@ import {
   Tag,
   message,
 } from 'antd';
-import { PlusOutlined, ReloadOutlined, ApiOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, ApiOutlined, DatabaseOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageHeader from '../components/PageHeader';
+import DatabaseBrowseModal from '../components/DatabaseBrowseModal';
 import { datasourceApi } from '../api/datasource';
 import type { DataSourceRequest, DataSourceResponse } from '../api/types';
 import { getJdbcTemplate, isJdbcTemplate } from '../constants/jdbcTemplates';
@@ -26,6 +27,8 @@ export default function DataSourcePage() {
   const [testing, setTesting] = useState(false);
   const [data, setData] = useState<DataSourceResponse[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [browseTarget, setBrowseTarget] = useState<DataSourceResponse | null>(null);
   const [editing, setEditing] = useState<DataSourceResponse | null>(null);
   const [initialEditDbType, setInitialEditDbType] = useState<string | null>(null);
   const [form] = Form.useForm<DataSourceRequest>();
@@ -110,6 +113,15 @@ export default function DataSourcePage() {
     }
   };
 
+  const openBrowse = (record: DataSourceResponse) => {
+    if (!record.enabled) {
+      message.warning('请先启用数据源后再浏览');
+      return;
+    }
+    setBrowseTarget(record);
+    setBrowseOpen(true);
+  };
+
   const columns: ColumnsType<DataSourceResponse> = [
     { title: 'ID', dataIndex: 'id', width: 120 },
     { title: '名称', dataIndex: 'name', width: 140 },
@@ -134,10 +146,19 @@ export default function DataSourcePage() {
     },
     {
       title: '操作',
-      width: 160,
+      width: 220,
       fixed: 'right',
       render: (_, record) => (
         <Space>
+          <Button
+            type="link"
+            size="small"
+            icon={<DatabaseOutlined />}
+            disabled={!record.enabled}
+            onClick={() => openBrowse(record)}
+          >
+            浏览
+          </Button>
           <Button type="link" size="small" onClick={() => openEdit(record)}>
             编辑
           </Button>
@@ -233,6 +254,11 @@ export default function DataSourcePage() {
           </Form.Item>
         </Form>
       </Modal>
+      <DatabaseBrowseModal
+        datasource={browseTarget}
+        open={browseOpen}
+        onClose={() => setBrowseOpen(false)}
+      />
     </>
   );
 }

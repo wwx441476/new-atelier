@@ -114,6 +114,7 @@ public class WarningRuleServiceImpl implements WarningRuleService {
                 .applyRowAuth(false)
                 .build();
         QueryResult queryResult = metricQueryService.query(request);
+        String sql = metricQueryService.compileOnly(request).getSql();
 
         List<Map<String, Object>> previewRows = new ArrayList<>();
         long matched = 0;
@@ -138,6 +139,7 @@ public class WarningRuleServiceImpl implements WarningRuleService {
                 .ruleId(rule.getId())
                 .ruleName(rule.getName())
                 .expression(rule.getExpression())
+                .sql(sql)
                 .total(queryResult.getTotal())
                 .matchedCount(matched)
                 .rows(previewRows)

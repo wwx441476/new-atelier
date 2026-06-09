@@ -1,6 +1,7 @@
 package com.example.atelier.metrics.compiler;
 
 import com.example.atelier.domain.metric.FilterCondition;
+import com.example.atelier.domain.metric.FilterGroup;
 import com.example.atelier.domain.metric.FilterOperator;
 import org.apache.commons.lang3.StringUtils;
 
@@ -16,6 +17,13 @@ public final class WhereClauseBuilder {
     private WhereClauseBuilder() {
     }
 
+    public static String resolve(List<FilterCondition> filters, List<FilterGroup> filterGroups) {
+        if (filterGroups != null && !filterGroups.isEmpty()) {
+            return buildGroups(filterGroups);
+        }
+        return build(filters);
+    }
+
     public static String build(List<FilterCondition> filters) {
         if (filters == null || filters.isEmpty()) {
             return "";
@@ -28,6 +36,20 @@ public final class WhereClauseBuilder {
             }
         }
         return String.join(" AND ", parts);
+    }
+
+    public static String buildGroups(List<FilterGroup> filterGroups) {
+        if (filterGroups == null || filterGroups.isEmpty()) {
+            return "";
+        }
+        List<String> groupParts = new ArrayList<>();
+        for (FilterGroup group : filterGroups) {
+            String groupSql = build(group.getConditions());
+            if (StringUtils.isNotBlank(groupSql)) {
+                groupParts.add("(" + groupSql + ")");
+            }
+        }
+        return String.join(" OR ", groupParts);
     }
 
     private static String buildOne(FilterCondition filter) {

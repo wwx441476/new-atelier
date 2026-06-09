@@ -59,7 +59,7 @@ public class CompositeMetricStrategy implements MetricCompileStrategy {
             }
         }
 
-        String whereClause = WhereClauseBuilder.build(context.getFilters());
+        String whereClause = WhereClauseBuilder.resolve(context.getFilters(), context.getFilterGroups());
 
         return SqlFragments.builder()
                 .selectClause(String.join(", ", selectParts))
