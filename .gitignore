@@ -15,5 +15,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Frontend (atelier-web)
+atelier-web/node_modules/
+atelier-web/dist/
+
 # Node.js
 node_modules/

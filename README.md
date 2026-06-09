@@ -118,6 +118,25 @@ new-atelier/
 | 指标 | `MetricDefinitionController` + `MetricController` | `/api/v2/metrics` |
 | 预警 | `WarningRuleController` | `/api/v2/warning/rules` |
 
+## 前端管理控制台（atelier-web）
+
+自包含 React 管理 UI，位于 `atelier-web/`（与 `atelier-app` 平级）。
+
+```bash
+# 终端 1 — 后端
+cd atelier-app && mvn spring-boot:run
+
+# 终端 2 — 前端
+cd atelier-web
+npm install
+npm run dev
+```
+
+- 前端：http://localhost:5173
+- 后端：http://localhost:8090
+- Vite 代理 `/api` → `8090`，详见 `atelier-web/README.md`
+
+
 统一响应包装 `ApiResponse<T>`：`{ "code": 0, "message": "success", "data": ... }`
 
 ### 指标架构：声明式定义 + 查询时编译
@@ -227,7 +246,36 @@ proxy: {
 | 基础设施 | bd-platform 8.52-SNAPSHOT | **atelier-infra** 自研 |
 | API 版本 | `/api/v1/*` | **`/api/v2/*`** |
 
----
+## 模块结构（五大管理域）
+
+```
+new-atelier/
+├── atelier-domain/          # 领域模型（指标、元数据、维度、预警）
+├── atelier-infra/           # JPA 实体/仓储、数据源、JDBC 执行
+├── atelier-metadata/        # 元数据管理（表/字段 CRUD、JDBC 发现）
+├── atelier-dimension/       # 维度管理（LIST/TREE/TIME_DIM）
+├── atelier-metrics/         # 指标编译器（MetricQueryCompiler）
+├── atelier-warning/         # 预警规则 + QLExpress 表达式桩
+├── atelier-query/           # 查询编排（编译 + 执行 SPI）
+├── atelier-api/             # REST 控制器（5 大管理域）
+└── atelier-app/             # Spring Boot 启动 + schema.sql / data.sql
+```
+
+## 实体关系图
+
+```mermaid
+erDiagram
+    DMP_DATASOURCE ||--o{ ATELIER_META_TABLE : "pkDatasource"
+    ATELIER_META_TABLE ||--o{ ATELIER_META_TABLE_FIELD : "pkMetaTable"
+    DMP_DATASOURCE ||--o{ ATELIER_DIMENSION : "pkDatasource"
+    ATELIER_META_TABLE ||--o| ATELIER_DIMENSION : "pkMetaTable"
+    ATELIER_DIMENSION ||--o{ ATELIER_DIMENSION_FIELD : "pkDimension"
+    ATELIER_DIMENSION ||--o{ ATELIER_DIMENSION_VALUE : "pkDimension"
+    DMP_DATASOURCE ||--o{ ATELIER_METRIC_DEFINITION : "pkDatasource"
+    ATELIER_METRIC_DEFINITION ||--o{ ATELIER_WARNING_RULE : "metricCodes"
+```
+
+**链路：** 数据源 → 元数据表/字段 → 维度定义/值 → 指标定义 → 预警规则
 
 ## API 清单（/api/v2/）
 
@@ -329,7 +377,52 @@ erDiagram
 | 指标 | `/api/v1/dataIndex/*` | `/api/v2/metrics/*` |
 | 预警 | `/api/v1/warningRule/*` | `/api/v2/warning/rules` |
 
----
+## 前端管理控制台（atelier-web）
+
+自包含 React 管理 UI，位于 `atelier-web/`（与 `atelier-app` 平级）。
+
+```bash
+# 终端 1 — 后端
+cd atelier-app && mvn spring-boot:run
+
+# 终端 2 — 前端
+cd atelier-web
+npm install
+npm run dev
+```
+
+- 前端：http://localhost:5173
+- 后端：http://localhost:8090
+- Vite 代理 `/api` → `8090`，详见 `atelier-web/README.md`
+
+## 快速体验
+
+```bash
+cd /Volumes/S/IdeaProjects/yonyou/new-atelier
+mvn clean install
+
+cd atelier-app && mvn spring-boot:run
+
+# 数据源
+curl http://localhost:8090/api/v2/datasources
+
+# 元数据
+curl http://localhost:8090/api/v2/metadata/tables
+
+# 维度
+curl http://localhost:8090/api/v2/dimensions
+
+# 指标定义
+curl http://localhost:8090/api/v2/metrics/definitions
+
+# 指标查询
+curl -X POST http://localhost:8090/api/v2/metrics/query \
+  -H 'Content-Type: application/json' \
+  -d '{"metricCodes":["revenue"],"filters":[{"field":"dept_code","operator":"IN","values":["001"]}]}'
+
+# 预警规则
+curl http://localhost:8090/api/v2/warning/rules
+```
 
 ## 从 dmp-atelier 迁移路径
 
