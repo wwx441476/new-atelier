@@ -251,3 +251,41 @@ export interface WarningRulePreviewResult {
   rows: Record<string, unknown>[];
   headers?: Record<string, string>;
 }
+
+export interface ConfigDataSource {
+  id: string;
+  name: string;
+  jdbcUrl: string;
+  username: string;
+  password?: string;
+  dbType: string;
+  enabled?: boolean;
+}
+
+export interface AtelierConfigBundle {
+  version?: string;
+  exportedAt?: string;
+  datasources?: ConfigDataSource[];
+  metadataTables?: Array<{ table: MetaTable; fields?: MetaTableField[] }>;
+  dimensions?: Array<{
+    dimension: Dimension;
+    fields?: DimensionField[];
+    values?: DimensionValue[];
+  }>;
+  metrics?: MetricDefinition[];
+  warningRules?: WarningRule[];
+}
+
+export interface ConfigImportOptions {
+  importDatasources?: boolean;
+  importMetadata?: boolean;
+  importDimensions?: boolean;
+  importMetrics?: boolean;
+  importWarningRules?: boolean;
+}
+
+export interface ConfigImportResult {
+  imported?: Record<string, number>;
+  skipped?: Record<string, number>;
+  message?: string;
+}

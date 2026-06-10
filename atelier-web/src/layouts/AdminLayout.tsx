@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
-import { Layout, Menu, theme, Typography } from 'antd';
+import { Layout, Menu, Space, theme, Typography } from 'antd';
 import OnboardingGuide, { OnboardingHeaderActions } from '../components/OnboardingGuide';
+import ConfigBundleActions from '../components/ConfigBundleActions';
 import { ONBOARDING_STEPS } from '../guide/steps';
 import { useOnboarding } from '../guide/OnboardingContext';
 import {
@@ -97,7 +98,10 @@ function AdminLayoutInner() {
           }}
         >
           <Typography.Text type="secondary">new-atelier 管理控制台</Typography.Text>
-          <OnboardingHeaderActions />
+          <Space size="middle">
+            <ConfigBundleActions />
+            <OnboardingHeaderActions />
+          </Space>
         </Header>
         <OnboardingGuide />
         <Content style={{ margin: 24 }}>
