@@ -80,4 +80,8 @@ public class DataSourceEntity {
 
     @Column(name = "MODIFY_TIME")
     private LocalDateTime modifyTime;
+
+    /** JDBC 连接属性 JSON，如 {"useSSL":"true"} */
+    @Column(name = "CONNECT_PROPS", length = 2000)
+    private String connectProps;
 }

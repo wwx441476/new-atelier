@@ -5,6 +5,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Radio,
   Select,
   Space,
   Switch,
@@ -23,6 +24,8 @@ import SqlPreviewBlock from '../components/SqlPreviewBlock';
 import WarningExpressionField, {
   validateWarningExpressionField,
 } from '../components/WarningExpressionField';
+import SemanticRuleConfigForm from '../components/SemanticRuleConfigForm';
+import SemanticLlmSettingsModal from '../components/SemanticLlmSettingsModal';
 import { dimensionApi } from '../api/dimension';
 import { warningApi } from '../api/warning';
 import { metricApi } from '../api/metric';
@@ -31,6 +34,7 @@ import type {
   MetricDefinition,
   WarningRule,
   WarningRulePreviewResult,
+  WarningRuleType,
 } from '../api/types';
 import { formatDimensionDisplayValue, resolveCommonDimensions } from '../utils/metricDimensions';
 import {
@@ -73,6 +77,8 @@ export default function WarningRulePage() {
     Record<string, Record<string, string>>
   >({});
   const selectedMetricCodes = Form.useWatch('metricCodes', form) as string[] | undefined;
+  const selectedRuleType = (Form.useWatch('ruleType', form) as WarningRuleType | undefined) || 'METRIC';
+  const [llmSettingsOpen, setLlmSettingsOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,14 +103,52 @@ export default function WarningRulePage() {
   const openCreate = () => {
     setEditing(null);
     form.resetFields();
-    form.setFieldsValue({ enabled: true, warningLevel: 2 });
+    form.setFieldsValue({
+      enabled: true,
+      warningLevel: 2,
+      ruleType: 'METRIC',
+      ruleConfig: { triggerLogic: 'AND', semantic: { matchMode: 'HYBRID' } },
+    });
     setModalOpen(true);
   };
 
   const openEdit = (record: WarningRule) => {
     setEditing(record);
-    form.setFieldsValue(record);
+    const ruleType = (record.ruleType || 'METRIC') as WarningRuleType;
+    form.resetFields();
+    form.setFieldsValue({
+      name: record.name,
+      code: record.code,
+      catalogCode: record.catalogCode,
+      ruleType,
+      metricCodes: record.metricCodes ?? [],
+      expression: record.expression ?? '',
+      warningLevel: record.warningLevel,
+      enabled: record.enabled,
+      comments: record.comments,
+      ruleConfig: {
+        triggerLogic: record.ruleConfig?.triggerLogic ?? 'AND',
+        semantic: {
+          matchMode: 'HYBRID',
+          ...record.ruleConfig?.semantic,
+        },
+      },
+    });
     setModalOpen(true);
+  };
+
+  const formatRuleSummary = (record: WarningRule) => {
+    const type = record.ruleType || 'METRIC';
+    if (type === 'SEMANTIC') {
+      const field = record.ruleConfig?.semantic?.fieldCode || '字段';
+      return `[语义] ${field} · 合规检测`;
+    }
+    if (type === 'COMPOSITE') {
+      const logic = record.ruleConfig?.triggerLogic === 'OR' ? '或' : '且';
+      const field = record.ruleConfig?.semantic?.fieldCode || '字段';
+      return `[组合] ${record.expression || ''} ${logic} ${field}·语义`;
+    }
+    return record.expression || '-';
   };
 
   const handleSave = async () => {
@@ -113,7 +157,21 @@ export default function WarningRulePage() {
       values.id = editing.id;
       values.code = editing.code;
     }
-    await warningApi.save(values);
+    const ruleType = values.ruleType || 'METRIC';
+    const payload: WarningRule = { ...values, ruleType };
+    if (ruleType === 'SEMANTIC') {
+      payload.metricCodes = [];
+      payload.expression = undefined;
+      payload.ruleConfig = { semantic: values.ruleConfig?.semantic };
+    } else if (ruleType === 'COMPOSITE') {
+      payload.ruleConfig = {
+        triggerLogic: values.ruleConfig?.triggerLogic || 'AND',
+        semantic: values.ruleConfig?.semantic,
+      };
+    } else {
+      payload.ruleConfig = undefined;
+    }
+    await warningApi.save(payload);
     message.success('预警规则已保存');
     setModalOpen(false);
     load();
@@ -240,7 +298,12 @@ export default function WarningRulePage() {
       ? Object.keys(previewResult.rows[0])
       : Object.keys(previewResult?.headers || {});
     const metricCodes = previewRule?.metricCodes || [];
-    return rowKeys.filter((key) => key !== '_triggered' && !metricCodes.includes(key));
+    return rowKeys.filter(
+      (key) =>
+        !['_triggered', '_matchReason', '_matchLayer', '_llmInvoked', '_metricTriggered', '_semanticTriggered'].includes(
+          key,
+        ) && !metricCodes.includes(key),
+    );
   }, [previewResult, previewRule]);
 
   const previewColumns: ColumnsType<Record<string, unknown>> = useMemo(() => {
@@ -249,10 +312,18 @@ export default function WarningRulePage() {
       : Object.keys(previewResult?.headers || {});
     const metricCodes = previewRule?.metricCodes || [];
     const dimensionKeys = previewDimensionKeys;
+    const extraKeys = [
+      '_metricTriggered',
+      '_semanticTriggered',
+      '_matchReason',
+      '_matchLayer',
+      '_llmInvoked',
+      '_triggered',
+    ];
     const orderedKeys = [
       ...dimensionKeys,
       ...metricCodes.filter((code) => rowKeys.includes(code)),
-      ...(rowKeys.includes('_triggered') ? ['_triggered'] : []),
+      ...extraKeys.filter((key) => rowKeys.includes(key)),
     ];
     const dimensionKeySet = new Set(dimensionKeys);
     return orderedKeys.map((key) => ({
@@ -261,11 +332,18 @@ export default function WarningRulePage() {
       width: key === '_triggered' ? 100 : undefined,
       ellipsis: key !== '_triggered',
       render: (value: unknown) => {
-        if (key === '_triggered') {
+        if (key === '_triggered' || key === '_metricTriggered' || key === '_semanticTriggered') {
           return value ? (
-            <Tag color="error">触发</Tag>
+            <Tag color="error">是</Tag>
           ) : (
-            <Tag color="default">未触发</Tag>
+            <Tag color="default">否</Tag>
+          );
+        }
+        if (key === '_llmInvoked') {
+          return value ? (
+            <Tag color="processing">是</Tag>
+          ) : (
+            <Tag color="default">否</Tag>
           );
         }
         if (dimensionKeySet.has(key)) {
@@ -280,17 +358,38 @@ export default function WarningRulePage() {
     { title: '名称', dataIndex: 'name', width: 160 },
     { title: '编码', dataIndex: 'code', width: 120 },
     {
+      title: '类型',
+      dataIndex: 'ruleType',
+      width: 90,
+      render: (v: WarningRuleType | string) => {
+        const key = (v || 'METRIC').toUpperCase() as WarningRuleType;
+        const map: Record<WarningRuleType, string> = {
+          METRIC: '指标',
+          SEMANTIC: '语义',
+          COMPOSITE: '组合',
+        };
+        return <Tag>{map[key] ?? key}</Tag>;
+      },
+    },
+    {
       title: '关联指标',
       dataIndex: 'metricCodes',
       width: 200,
       render: (codes: string[]) =>
-        codes?.map((c) => (
-          <Tag key={c} color="blue">
-            {c}
-          </Tag>
-        )),
+        codes?.length
+          ? codes.map((c) => (
+              <Tag key={c} color="blue">
+                {c}
+              </Tag>
+            ))
+          : '-',
     },
-    { title: '表达式', dataIndex: 'expression', ellipsis: true },
+    {
+      title: '规则摘要',
+      dataIndex: 'expression',
+      ellipsis: true,
+      render: (_, record) => formatRuleSummary(record),
+    },
     {
       title: '级别',
       dataIndex: 'warningLevel',
@@ -434,7 +533,7 @@ export default function WarningRulePage() {
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={handleSave}
-        width={600}
+        width={640}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label="规则名称" rules={[{ required: true }]}>
@@ -450,38 +549,60 @@ export default function WarningRulePage() {
           <Form.Item name="catalogCode" label="目录编码">
             <Input placeholder="如 finance" />
           </Form.Item>
-          <Form.Item
-            name="metricCodes"
-            label="关联指标"
-            rules={[{ required: true, message: '请选择至少一个指标' }]}
-          >
-            <Select
-              mode="multiple"
-              placeholder="选择指标"
-              options={metricOptions}
-              optionFilterProp="label"
-            />
+          <Form.Item name="ruleType" label="规则类型" initialValue="METRIC">
+            <Radio.Group>
+              <Radio value="METRIC">指标表达式</Radio>
+              <Radio value="SEMANTIC">语义合规</Radio>
+              <Radio value="COMPOSITE">组合规则</Radio>
+            </Radio.Group>
           </Form.Item>
-          <Form.Item
-            name="expression"
-            label="预警表达式"
-            rules={[
-              { required: true, message: '请输入预警表达式' },
-              {
-                validator: async (_, expression) => {
-                  await validateWarningExpressionField(
-                    expression,
-                    selectedMetricCodes || [],
-                  );
-                },
-              },
-            ]}
-          >
-            <WarningExpressionField
-              metricCodes={selectedMetricCodes || []}
-              metrics={metrics}
-            />
-          </Form.Item>
+          {(selectedRuleType === 'METRIC' || selectedRuleType === 'COMPOSITE') && (
+            <>
+              <Form.Item
+                name="metricCodes"
+                label="关联指标"
+                rules={[{ required: true, message: '请选择至少一个指标' }]}
+              >
+                <Select
+                  mode="multiple"
+                  placeholder="选择指标"
+                  options={metricOptions}
+                  optionFilterProp="label"
+                />
+              </Form.Item>
+              <Form.Item
+                name="expression"
+                label="预警表达式"
+                rules={[
+                  { required: true, message: '请输入预警表达式' },
+                  {
+                    validator: async (_, expression) => {
+                      await validateWarningExpressionField(
+                        expression,
+                        selectedMetricCodes || [],
+                      );
+                    },
+                  },
+                ]}
+              >
+                <WarningExpressionField
+                  metricCodes={selectedMetricCodes || []}
+                  metrics={metrics}
+                />
+              </Form.Item>
+            </>
+          )}
+          {selectedRuleType === 'COMPOSITE' && (
+            <Form.Item name={['ruleConfig', 'triggerLogic']} label="组合逻辑" initialValue="AND">
+              <Radio.Group>
+                <Radio value="AND">指标条件 且 语义违规</Radio>
+                <Radio value="OR">指标条件 或 语义违规</Radio>
+              </Radio.Group>
+            </Form.Item>
+          )}
+          {(selectedRuleType === 'SEMANTIC' || selectedRuleType === 'COMPOSITE') && (
+            <SemanticRuleConfigForm llmSettingsOpen={() => setLlmSettingsOpen(true)} />
+          )}
           <Form.Item name="warningLevel" label="预警级别">
             <Select
               options={[1, 2, 3].map((l) => ({ label: `级别 ${l}`, value: l }))}
@@ -495,6 +616,7 @@ export default function WarningRulePage() {
           </Form.Item>
         </Form>
       </Modal>
+      <SemanticLlmSettingsModal open={llmSettingsOpen} onClose={() => setLlmSettingsOpen(false)} />
     </>
   );
 }

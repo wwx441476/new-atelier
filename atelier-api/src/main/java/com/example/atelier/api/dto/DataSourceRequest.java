@@ -15,4 +15,5 @@ public class DataSourceRequest {
     private String password;
     private String dbType;
     private Boolean enabled;
+    private java.util.Map<String, String> connectionProperties;
 }

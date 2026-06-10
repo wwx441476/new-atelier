@@ -50,6 +50,14 @@ public class WarningRuleEntity {
     @Column(name = "NOTIFY_CONFIG")
     private String notifyConfig;
 
+    @Column(name = "RULE_TYPE", length = 20)
+    @Builder.Default
+    private String ruleType = "METRIC";
+
+    @Lob
+    @Column(name = "RULE_CONFIG")
+    private String ruleConfig;
+
     @Column(name = "COMMENTS", length = 500)
     private String comments;
 

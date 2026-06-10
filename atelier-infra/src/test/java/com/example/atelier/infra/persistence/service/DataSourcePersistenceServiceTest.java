@@ -112,6 +112,30 @@ public class DataSourcePersistenceServiceTest {
         Assert.assertEquals("", loaded.getPassword());
     }
 
+    @Test
+    public void shouldPersistConnectionProperties() {
+        java.util.Map<String, String> props = new java.util.LinkedHashMap<>();
+        props.put("useSSL", "true");
+        props.put("serverTimezone", "Asia/Shanghai");
+        DataSourceConfig config = DataSourceConfig.builder()
+                .id("ds-mysql-props")
+                .name("MySQL Props")
+                .jdbcUrl("jdbc:mysql://localhost:3306/demo")
+                .username("root")
+                .password("secret")
+                .dbType(DbType.MYSQL)
+                .enabled(true)
+                .connectionProperties(props)
+                .build();
+
+        service.save(config);
+
+        DataSourceConfig loaded = service.findConfigById("ds-mysql-props").orElse(null);
+        Assert.assertNotNull(loaded);
+        Assert.assertEquals("true", loaded.getConnectionProperties().get("useSSL"));
+        Assert.assertEquals("Asia/Shanghai", loaded.getConnectionProperties().get("serverTimezone"));
+    }
+
     @Test(expected = AtelierException.class)
     public void shouldRejectMissingUsername() {
         service.save(DataSourceConfig.builder()

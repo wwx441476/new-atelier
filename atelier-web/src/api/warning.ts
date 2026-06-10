@@ -1,6 +1,8 @@
 import { deleteData, getData, postData } from './client';
 import type {
   ExpressionValidateResult,
+  SemanticRuleConfig,
+  SemanticValidateResult,
   WarningRule,
   WarningRulePreviewRequest,
   WarningRulePreviewResult,
@@ -16,6 +18,13 @@ export const warningApi = {
       expression,
       metricCodes,
     }),
+  validateSemantic: (semanticConfig: SemanticRuleConfig, sampleText?: string) =>
+    postData<SemanticValidateResult>('/warning/rules/validate-semantic', {
+      semanticConfig,
+      sampleText,
+    }),
+  expandKeywords: (semanticConfig: SemanticRuleConfig) =>
+    postData<{ keywords: string[] }>('/warning/rules/expand-keywords', { semanticConfig }),
   evaluate: (expression: string, metricValues: Record<string, unknown>) =>
     postData<{ triggered: boolean }>('/warning/rules/evaluate', { expression, metricValues }),
   previewRule: (id: string, request: WarningRulePreviewRequest = {}) =>

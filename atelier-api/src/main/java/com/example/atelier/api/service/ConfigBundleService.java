@@ -254,6 +254,7 @@ public class ConfigBundleService {
                 .password(includeSecrets ? config.getPassword() : null)
                 .dbType(config.getDbType() != null ? config.getDbType().name() : DbType.UNKNOWN.name())
                 .enabled(config.isEnabled())
+                .connectionProperties(config.getConnectionProperties())
                 .build();
     }
 
@@ -267,6 +268,7 @@ public class ConfigBundleService {
                 .password(exported.getPassword())
                 .dbType(dbType)
                 .enabled(exported.isEnabled())
+                .connectionProperties(exported.getConnectionProperties())
                 .build();
     }
 

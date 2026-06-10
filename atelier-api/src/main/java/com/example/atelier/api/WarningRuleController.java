@@ -7,6 +7,8 @@ import com.example.atelier.domain.metric.FilterCondition;
 import com.example.atelier.domain.metric.FilterGroup;
 import com.example.atelier.domain.metric.FilterOperator;
 import com.example.atelier.domain.warning.ExpressionValidateResult;
+import com.example.atelier.domain.warning.SemanticRuleConfig;
+import com.example.atelier.domain.warning.SemanticValidateResult;
 import com.example.atelier.domain.warning.WarningRule;
 import com.example.atelier.domain.warning.WarningRulePreviewResult;
 import com.example.atelier.warning.spi.WarningRuleService;
@@ -98,6 +100,50 @@ public class WarningRuleController {
         Map<String, Object> result = new HashMap<>();
         result.put("triggered", triggered);
         return ApiResponse.ok(result);
+    }
+
+    @PostMapping("/validate-semantic")
+    public ApiResponse<SemanticValidateResult> validateSemantic(@RequestBody Map<String, Object> request) {
+        SemanticRuleConfig config = parseSemanticConfig(request.get("semanticConfig"));
+        String sampleText = (String) request.get("sampleText");
+        return ApiResponse.ok(warningRuleService.validateSemantic(config, sampleText));
+    }
+
+    @PostMapping("/expand-keywords")
+    public ApiResponse<Map<String, Object>> expandKeywords(@RequestBody Map<String, Object> request) {
+        SemanticRuleConfig config = parseSemanticConfig(request.get("semanticConfig"));
+        List<String> keywords = warningRuleService.expandKeywords(config);
+        Map<String, Object> result = new HashMap<>();
+        result.put("keywords", keywords);
+        return ApiResponse.ok(result);
+    }
+
+    @SuppressWarnings("unchecked")
+    private SemanticRuleConfig parseSemanticConfig(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (raw instanceof SemanticRuleConfig) {
+            return (SemanticRuleConfig) raw;
+        }
+        if (raw instanceof Map) {
+            Map<String, Object> map = (Map<String, Object>) raw;
+            SemanticRuleConfig config = new SemanticRuleConfig();
+            config.setMetaTableId((String) map.get("metaTableId"));
+            config.setFieldCode((String) map.get("fieldCode"));
+            config.setPolicy((String) map.get("policy"));
+            config.setMatchMode((String) map.get("matchMode"));
+            Object hints = map.get("hintKeywords");
+            if (hints instanceof List) {
+                config.setHintKeywords((List<String>) hints);
+            }
+            Object expanded = map.get("expandedKeywords");
+            if (expanded instanceof List) {
+                config.setExpandedKeywords((List<String>) expanded);
+            }
+            return config;
+        }
+        return null;
     }
 
     private List<FilterCondition> toFilterConditions(List<MetricQueryApiRequest.FilterDto> filters) {

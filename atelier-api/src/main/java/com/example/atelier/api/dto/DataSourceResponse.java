@@ -16,4 +16,5 @@ public class DataSourceResponse {
     private String username;
     private String dbType;
     private boolean enabled;
+    private java.util.Map<String, String> connectionProperties;
 }

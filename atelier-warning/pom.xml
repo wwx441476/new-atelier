@@ -28,6 +28,14 @@
             <artifactId>atelier-query</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.example.atelier</groupId>
+            <artifactId>atelier-metadata</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.alibaba</groupId>
             <artifactId>QLExpress</artifactId>
             <version>3.3.2</version>
@@ -44,6 +52,11 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>

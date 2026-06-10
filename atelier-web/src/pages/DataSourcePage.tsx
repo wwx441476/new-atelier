@@ -10,6 +10,7 @@ import {
   Switch,
   Table,
   Tag,
+  Typography,
   message,
 } from 'antd';
 import { PlusOutlined, ReloadOutlined, ApiOutlined, DatabaseOutlined } from '@ant-design/icons';
@@ -24,6 +25,43 @@ import { getJdbcTemplate, isJdbcTemplate } from '../constants/jdbcTemplates';
 
 const DB_TYPES = ['H2', 'MYSQL', 'ORACLE', 'POSTGRESQL', 'DM', 'KINGBASE', 'DB2', 'STARROCKS'];
 
+type ConnectionPropertyRow = { key?: string; value?: string };
+
+type DataSourceFormValues = DataSourceRequest & {
+  connectionPropertyRows?: ConnectionPropertyRow[];
+};
+
+function rowsFromProps(props?: Record<string, string>): ConnectionPropertyRow[] {
+  if (!props) {
+    return [];
+  }
+  return Object.entries(props).map(([key, value]) => ({ key, value }));
+}
+
+function propsFromRows(rows?: ConnectionPropertyRow[]): Record<string, string> | undefined {
+  if (!rows?.length) {
+    return undefined;
+  }
+  const result: Record<string, string> = {};
+  rows.forEach((row) => {
+    const key = row.key?.trim();
+    if (!key) {
+      return;
+    }
+    result[key] = row.value?.trim() ?? '';
+  });
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function toRequestPayload(values: DataSourceFormValues): DataSourceRequest {
+  const { connectionPropertyRows, ...rest } = values;
+  return {
+    ...rest,
+    password: values.password ?? '',
+    connectionProperties: propsFromRows(connectionPropertyRows),
+  };
+}
+
 export default function DataSourcePage() {
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -33,7 +71,7 @@ export default function DataSourcePage() {
   const [browseTarget, setBrowseTarget] = useState<DataSourceResponse | null>(null);
   const [editing, setEditing] = useState<DataSourceResponse | null>(null);
   const [initialEditDbType, setInitialEditDbType] = useState<string | null>(null);
-  const [form] = Form.useForm<DataSourceRequest>();
+  const [form] = Form.useForm<DataSourceFormValues>();
 
   const { onSaveSuccess } = useTutorialDemo('datasources', async (outcome) => {
     if (outcome.type !== 'form') {
@@ -86,6 +124,7 @@ export default function DataSourcePage() {
       enabled: true,
       dbType: defaultDbType,
       jdbcUrl: getJdbcTemplate(defaultDbType),
+      connectionPropertyRows: [],
     });
     setModalOpen(true);
   };
@@ -93,16 +132,17 @@ export default function DataSourcePage() {
   const openEdit = (record: DataSourceResponse) => {
     setEditing(record);
     setInitialEditDbType(record.dbType);
-    form.setFieldsValue({ ...record, password: '' });
+    form.setFieldsValue({
+      ...record,
+      password: '',
+      connectionPropertyRows: rowsFromProps(record.connectionProperties),
+    });
     setModalOpen(true);
   };
 
   const handleSave = async () => {
     const values = await form.validateFields();
-    await datasourceApi.save({
-      ...values,
-      password: values.password ?? '',
-    });
+    await datasourceApi.save(toRequestPayload(values));
     message.success(editing ? '数据源已更新' : '数据源已创建');
     setModalOpen(false);
     load();
@@ -113,10 +153,7 @@ export default function DataSourcePage() {
     const values = await form.validateFields();
     setTesting(true);
     try {
-      const result = await datasourceApi.test({
-        ...values,
-        password: values.password ?? '',
-      });
+      const result = await datasourceApi.test(toRequestPayload(values));
       if (result.success) {
         message.success(result.message);
       } else {
@@ -225,7 +262,7 @@ export default function DataSourcePage() {
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={handleSave}
-        width={640}
+        width={720}
         footer={[
           <Button key="test" icon={<ApiOutlined />} loading={testing} onClick={handleTest}>
             测试连接
@@ -268,6 +305,44 @@ export default function DataSourcePage() {
           <Form.Item name="enabled" label="启用" valuePropName="checked">
             <Switch />
           </Form.Item>
+          <Typography.Text strong>连接属性（可选）</Typography.Text>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
+            追加 JDBC 参数，如 MySQL 的 useSSL、serverTimezone、characterEncoding 等
+          </Typography.Paragraph>
+          <Form.List name="connectionPropertyRows">
+            {(rows, { add, remove }) => (
+              <>
+                {rows.map((row) => (
+                  <Space key={row.key} align="baseline" style={{ display: 'flex', marginBottom: 8 }}>
+                    <Form.Item
+                      {...row}
+                      name={[row.name, 'key']}
+                      rules={[{ required: true, message: '请输入属性名' }]}
+                    >
+                      <Input placeholder="useSSL" style={{ width: 160 }} />
+                    </Form.Item>
+                    <Form.Item
+                      {...row}
+                      name={[row.name, 'value']}
+                      rules={[{ required: true, message: '请输入属性值' }]}
+                    >
+                      <Input placeholder="true" style={{ width: 220 }} />
+                    </Form.Item>
+                    <Button type="link" danger onClick={() => remove(row.name)}>
+                      删除
+                    </Button>
+                  </Space>
+                ))}
+                <Button
+                  type="dashed"
+                  onClick={() => add({ key: dbType === 'MYSQL' ? 'useSSL' : '', value: 'true' })}
+                  block
+                >
+                  添加属性
+                </Button>
+              </>
+            )}
+          </Form.List>
         </Form>
       </Modal>
       <DatabaseBrowseModal

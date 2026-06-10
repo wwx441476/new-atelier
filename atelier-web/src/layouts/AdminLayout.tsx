@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from 'react';
-import { Layout, Menu, Space, theme, Typography } from 'antd';
+import { Button, Layout, Menu, Space, theme, Typography } from 'antd';
+import { SettingOutlined } from '@ant-design/icons';
 import OnboardingGuide, { OnboardingHeaderActions } from '../components/OnboardingGuide';
 import ConfigBundleActions from '../components/ConfigBundleActions';
+import SemanticLlmSettingsModal from '../components/SemanticLlmSettingsModal';
 import { ONBOARDING_STEPS } from '../guide/steps';
 import { useOnboarding } from '../guide/OnboardingContext';
 import {
@@ -25,6 +27,7 @@ const menuIcons: Record<string, ReactNode> = {
 
 function AdminLayoutInner() {
   const [collapsed, setCollapsed] = useState(false);
+  const [llmSettingsOpen, setLlmSettingsOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = theme.useToken();
@@ -99,11 +102,15 @@ function AdminLayoutInner() {
         >
           <Typography.Text type="secondary">new-atelier 管理控制台</Typography.Text>
           <Space size="middle">
+            <Button icon={<SettingOutlined />} onClick={() => setLlmSettingsOpen(true)}>
+              语义检测设置
+            </Button>
             <ConfigBundleActions />
             <OnboardingHeaderActions />
           </Space>
         </Header>
         <OnboardingGuide />
+        <SemanticLlmSettingsModal open={llmSettingsOpen} onClose={() => setLlmSettingsOpen(false)} />
         <Content style={{ margin: 24 }}>
           <div
             style={{

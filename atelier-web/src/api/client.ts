@@ -37,6 +37,11 @@ export async function postData<T>(url: string, data?: unknown): Promise<T> {
   return res.data.data;
 }
 
+export async function putData<T>(url: string, data?: unknown): Promise<T> {
+  const res = await client.put<ApiResponse<T>>(url, data);
+  return res.data.data;
+}
+
 export async function deleteData<T>(url: string): Promise<T> {
   const res = await client.delete<ApiResponse<T>>(url);
   return res.data.data;

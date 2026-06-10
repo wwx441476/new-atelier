@@ -38,5 +38,11 @@ public class WarningRule {
     /** 通知配置 JSON 桩 */
     private String notifyConfig;
 
+    @Builder.Default
+    private WarningRuleType ruleType = WarningRuleType.METRIC;
+
+    /** SEMANTIC / COMPOSITE 规则的扩展配置；语义配置位于 ruleConfig.semantic */
+    private CompositeRuleConfig ruleConfig;
+
     private String comments;
 }

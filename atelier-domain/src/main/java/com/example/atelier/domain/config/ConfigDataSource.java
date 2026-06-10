@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.Map;
+
 /**
  * 数据源配置导出项 — 不含 infra 依赖，便于 JSON 交换。
  */
@@ -29,4 +31,6 @@ public class ConfigDataSource {
 
     @Builder.Default
     private boolean enabled = true;
+
+    private Map<String, String> connectionProperties;
 }

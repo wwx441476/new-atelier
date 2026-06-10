@@ -4,8 +4,10 @@ import com.example.atelier.infra.datasource.DataSourceConfig;
 import com.example.atelier.infra.datasource.DbType;
 import com.example.atelier.infra.datasource.PasswordCrypto;
 import com.example.atelier.infra.persistence.entity.DataSourceEntity;
+import com.example.atelier.infra.persistence.mapper.DataSourcePropsMapper;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 
 /**
  * DataSourceEntity ↔ DataSourceConfig 转换。
@@ -27,6 +29,7 @@ public final class DataSourceEntityMapper {
                 .password(PasswordCrypto.decrypt(entity.getVerification()))
                 .dbType(DbType.fromString(entity.getDbType()))
                 .enabled(isEnabled(entity))
+                .connectionProperties(DataSourcePropsMapper.fromJson(entity.getConnectProps()))
                 .build();
     }
 
@@ -40,6 +43,7 @@ public final class DataSourceEntityMapper {
                 .verification(PasswordCrypto.encrypt(nullToEmpty(config.getPassword())))
                 .dbType(config.getDbType() != null ? config.getDbType().name() : DbType.UNKNOWN.name())
                 .enable(config.isEnabled() ? 1 : 0)
+                .connectProps(DataSourcePropsMapper.toJson(config.getConnectionProperties()))
                 .createTime(now)
                 .modifyTime(now)
                 .build();
@@ -56,6 +60,10 @@ public final class DataSourceEntityMapper {
         }
         entity.setDbType(config.getDbType() != null ? config.getDbType().name() : DbType.UNKNOWN.name());
         entity.setEnable(config.isEnabled() ? 1 : 0);
+        entity.setConnectProps(DataSourcePropsMapper.toJson(
+                config.getConnectionProperties() != null
+                        ? config.getConnectionProperties()
+                        : Collections.emptyMap()));
         entity.setModifyTime(LocalDateTime.now());
     }
 

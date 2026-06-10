@@ -23,6 +23,9 @@ public class ConnectionPool implements AutoCloseable {
         hikariConfig.setMaximumPoolSize(10);
         hikariConfig.setMinimumIdle(1);
         hikariConfig.setConnectionTimeout(30_000);
+        if (config.getConnectionProperties() != null) {
+            config.getConnectionProperties().forEach(hikariConfig::addDataSourceProperty);
+        }
         this.dataSource = new HikariDataSource(hikariConfig);
     }
 

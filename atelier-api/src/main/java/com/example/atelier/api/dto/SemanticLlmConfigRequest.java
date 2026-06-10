@@ -1,0 +1,20 @@
+package com.example.atelier.api.dto;
+
+import lombok.Data;
+
+@Data
+public class SemanticLlmConfigRequest {
+
+    private Boolean enabled;
+
+    private String provider;
+
+    /** 留空表示不修改已保存的 Key */
+    private String apiKey;
+
+    private String model;
+
+    private String baseUrl;
+
+    private Integer timeoutSeconds;
+}

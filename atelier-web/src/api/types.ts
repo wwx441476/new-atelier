@@ -12,6 +12,7 @@ export interface DataSourceRequest {
   password?: string;
   dbType: string;
   enabled?: boolean;
+  connectionProperties?: Record<string, string>;
 }
 
 export interface DataSourceResponse {
@@ -21,6 +22,7 @@ export interface DataSourceResponse {
   username: string;
   dbType: string;
   enabled: boolean;
+  connectionProperties?: Record<string, string>;
 }
 
 export interface TestConnectionResult {
@@ -226,12 +228,56 @@ export interface WarningRule {
   catalogCode?: string;
   code?: string;
   name: string;
-  metricCodes: string[];
-  expression: string;
+  ruleType?: WarningRuleType;
+  metricCodes?: string[];
+  expression?: string;
+  ruleConfig?: CompositeRuleConfig;
   enabled?: boolean;
   warningLevel?: number;
   notifyConfig?: string;
   comments?: string;
+}
+
+export type WarningRuleType = 'METRIC' | 'SEMANTIC' | 'COMPOSITE';
+
+export interface SemanticRuleConfig {
+  metaTableId?: string;
+  fieldCode?: string;
+  policy?: string;
+  hintKeywords?: string[];
+  matchMode?: 'KEYWORD' | 'LLM' | 'HYBRID';
+  expandedKeywords?: string[];
+}
+
+export interface CompositeRuleConfig {
+  triggerLogic?: 'AND' | 'OR';
+  semantic?: SemanticRuleConfig;
+}
+
+export interface SemanticValidateResult {
+  valid: boolean;
+  message?: string;
+  sampleTriggered?: boolean;
+  sampleMatchReason?: string;
+  sampleMatchLayer?: string;
+}
+
+export interface SemanticLlmConfigResponse {
+  enabled: boolean;
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+  timeoutSeconds?: number;
+  apiKeyConfigured: boolean;
+}
+
+export interface SemanticLlmConfigRequest {
+  enabled?: boolean;
+  provider?: string;
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+  timeoutSeconds?: number;
 }
 
 export interface WarningRulePreviewRequest {
@@ -260,6 +306,7 @@ export interface ConfigDataSource {
   password?: string;
   dbType: string;
   enabled?: boolean;
+  connectionProperties?: Record<string, string>;
 }
 
 export interface AtelierConfigBundle {

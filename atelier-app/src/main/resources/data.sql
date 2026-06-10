@@ -24,7 +24,8 @@ INSERT INTO ATELIER_META_TABLE_FIELD (PK_META_FIELD, PK_META_TABLE, FIELD_CODE, 
 ('mf-1', 'mt-orders', 'dept_code', '部门编码', 'VARCHAR', 1),
 ('mf-2', 'mt-orders', 'fiscal_year', '财年', 'VARCHAR', 2),
 ('mf-3', 'mt-orders', 'amount', '金额', 'DECIMAL', 3),
-('mf-4', 'mt-orders', 'cost_amount', '成本', 'DECIMAL', 4);
+('mf-4', 'mt-orders', 'cost_amount', '成本', 'DECIMAL', 4),
+('mf-5', 'mt-orders', 'remark', '备注', 'VARCHAR', 5);
 
 /* 元数据表 dept（物理部门表） */
 INSERT INTO ATELIER_META_TABLE (PK_META_TABLE, CATALOG_CODE, TABLE_CODE, TABLE_NAME, PK_DATASOURCE, COMMENTS, CREATE_TIME, MODIFY_TIME)
@@ -80,14 +81,19 @@ INSERT INTO ATELIER_METRIC_DEFINITION (PK_METRIC, METRIC_CODE, METRIC_NAME, CATA
  1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
 /* 5. 预警规则 */
-INSERT INTO ATELIER_WARNING_RULE (PK_WARNING_RULE, CATALOG_CODE, RULE_CODE, RULE_NAME, METRIC_CODES, EXPRESSION, ENABLED, WARNING_LEVEL, NOTIFY_CONFIG, COMMENTS, CREATE_TIME, MODIFY_TIME)
-VALUES ('wr-1', 'finance', 'low_profit', '利润过低预警', 'profit', 'profit < 500', 1, 2, '{"channels":["email"],"stub":true}', '演示预警规则', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+INSERT INTO ATELIER_WARNING_RULE (PK_WARNING_RULE, CATALOG_CODE, RULE_CODE, RULE_NAME, METRIC_CODES, EXPRESSION, ENABLED, WARNING_LEVEL, RULE_TYPE, RULE_CONFIG, NOTIFY_CONFIG, COMMENTS, CREATE_TIME, MODIFY_TIME)
+VALUES ('wr-1', 'finance', 'low_profit', '利润过低预警', 'profit', 'profit < 500', 1, 2, 'METRIC', NULL, '{"channels":["email"],"stub":true}', '演示指标预警规则', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+INSERT INTO ATELIER_WARNING_RULE (PK_WARNING_RULE, CATALOG_CODE, RULE_CODE, RULE_NAME, METRIC_CODES, EXPRESSION, ENABLED, WARNING_LEVEL, RULE_TYPE, RULE_CONFIG, NOTIFY_CONFIG, COMMENTS, CREATE_TIME, MODIFY_TIME)
+VALUES ('wr-2', 'finance', 'bad_remark', '备注烟酒违规', NULL, NULL, 1, 2, 'SEMANTIC',
+ '{"triggerLogic":"AND","semantic":{"metaTableId":"mt-orders","fieldCode":"remark","policy":"备注中不得包含烟酒相关内容，包括茅台、五粮液等品牌","hintKeywords":["烟","酒","茅台","五粮液"],"matchMode":"HYBRID","expandedKeywords":["飞天","剑南春","中华烟"]}}',
+ '{"channels":["email"],"stub":true}', '演示语义合规规则', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
 /* 演示业务数据 */
 INSERT INTO dept (id, name) VALUES ('d1', '销售部');
 INSERT INTO dept (id, name) VALUES ('d2', '研发部');
 
-INSERT INTO orders (dept_id, dept_code, fiscal_year, amount, cost_amount) VALUES ('d1', '001', '2024', 1000.00, 600.00);
-INSERT INTO orders (dept_id, dept_code, fiscal_year, amount, cost_amount) VALUES ('d1', '001', '2024', 500.00, 300.00);
-INSERT INTO orders (dept_id, dept_code, fiscal_year, amount, cost_amount) VALUES ('d2', '002', '2024', 800.00, 400.00);
-INSERT INTO orders (dept_id, dept_code, fiscal_year, amount, cost_amount) VALUES ('d2', '002', '2025', 1200.00, 700.00);
+INSERT INTO orders (dept_id, dept_code, fiscal_year, amount, cost_amount, remark) VALUES ('d1', '001', '2024', 1000.00, 600.00, '正常办公采购');
+INSERT INTO orders (dept_id, dept_code, fiscal_year, amount, cost_amount, remark) VALUES ('d1', '001', '2024', 500.00, 300.00, '采购茅台两瓶');
+INSERT INTO orders (dept_id, dept_code, fiscal_year, amount, cost_amount, remark) VALUES ('d2', '002', '2024', 800.00, 400.00, '设备维护');
+INSERT INTO orders (dept_id, dept_code, fiscal_year, amount, cost_amount, remark) VALUES ('d2', '002', '2025', 1200.00, 700.00, '研发耗材');

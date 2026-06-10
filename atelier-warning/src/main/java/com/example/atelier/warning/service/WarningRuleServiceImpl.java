@@ -2,15 +2,19 @@ package com.example.atelier.warning.service;
 
 import com.example.atelier.domain.metric.FilterCondition;
 import com.example.atelier.domain.metric.FilterGroup;
-import com.example.atelier.domain.query.MetricQueryRequest;
-import com.example.atelier.domain.query.QueryResult;
+import com.example.atelier.domain.warning.CompositeRuleConfig;
 import com.example.atelier.domain.warning.ExpressionValidateResult;
+import com.example.atelier.domain.warning.SemanticMatchResult;
+import com.example.atelier.domain.warning.SemanticRuleConfig;
+import com.example.atelier.domain.warning.SemanticValidateResult;
 import com.example.atelier.domain.warning.WarningRule;
 import com.example.atelier.domain.warning.WarningRulePreviewResult;
+import com.example.atelier.domain.warning.WarningRuleType;
 import com.example.atelier.infra.exception.AtelierException;
 import com.example.atelier.infra.persistence.entity.WarningRuleEntity;
 import com.example.atelier.infra.persistence.jpa.WarningRuleJpaRepository;
-import com.example.atelier.query.service.MetricQueryService;
+import com.example.atelier.infra.persistence.mapper.RuleConfigMapper;
+import com.example.atelier.warning.evaluator.SemanticRuleValidator;
 import com.example.atelier.warning.evaluator.WarningExpressionEvaluator;
 import com.example.atelier.warning.evaluator.WarningExpressionValidator;
 import com.example.atelier.warning.spi.WarningRuleService;
@@ -21,8 +25,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,17 +34,25 @@ import java.util.stream.Collectors;
 @Service
 public class WarningRuleServiceImpl implements WarningRuleService {
 
-    public static final String TRIGGERED_FIELD = "_triggered";
-
     private final WarningRuleJpaRepository repository;
-    private final MetricQueryService metricQueryService;
+    private final WarningRulePreviewService previewService;
+    private final KeywordExpansionService keywordExpansionService;
+    private final SemanticRuleEvaluator semanticRuleEvaluator;
+    private final SemanticLlmConfigLoader llmConfigLoader;
     private final WarningExpressionEvaluator evaluator = new WarningExpressionEvaluator();
     private final WarningExpressionValidator expressionValidator = new WarningExpressionValidator();
+    private final SemanticRuleValidator semanticRuleValidator = new SemanticRuleValidator();
 
     public WarningRuleServiceImpl(WarningRuleJpaRepository repository,
-                                  MetricQueryService metricQueryService) {
+                                  WarningRulePreviewService previewService,
+                                  KeywordExpansionService keywordExpansionService,
+                                  SemanticRuleEvaluator semanticRuleEvaluator,
+                                  SemanticLlmConfigLoader llmConfigLoader) {
         this.repository = repository;
-        this.metricQueryService = metricQueryService;
+        this.previewService = previewService;
+        this.keywordExpansionService = keywordExpansionService;
+        this.semanticRuleEvaluator = semanticRuleEvaluator;
+        this.llmConfigLoader = llmConfigLoader;
     }
 
     @Override
@@ -71,14 +81,12 @@ public class WarningRuleServiceImpl implements WarningRuleService {
                 throw new AtelierException("规则编码已存在: " + rule.getCode());
             }
         });
-        ExpressionValidateResult validation = expressionValidator.validate(
-                rule.getExpression(), rule.getMetricCodes());
-        if (!validation.isValid()) {
-            throw new AtelierException(validation.getMessage());
-        }
-        if (validation.getNormalizedExpression() != null) {
-            rule.setExpression(validation.getNormalizedExpression());
-        }
+
+        WarningRuleType ruleType = rule.getRuleType() != null ? rule.getRuleType() : WarningRuleType.METRIC;
+        rule.setRuleType(ruleType);
+        validateAndNormalizeRule(rule, ruleType);
+        maybeExpandKeywords(rule, ruleType);
+
         WarningRuleEntity entity = rule.getId() != null
                 ? repository.findById(rule.getId()).orElse(newEntity(rule))
                 : newEntity(rule);
@@ -90,6 +98,8 @@ public class WarningRuleServiceImpl implements WarningRuleService {
         entity.setEnabled(rule.getEnabled() != null && rule.getEnabled() ? 1 : 0);
         entity.setWarningLevel(rule.getWarningLevel());
         entity.setNotifyConfig(rule.getNotifyConfig());
+        entity.setRuleType(ruleType.name());
+        entity.setRuleConfig(RuleConfigMapper.toJson(rule.getRuleConfig()));
         entity.setComments(rule.getComments());
         entity.setModifyTime(LocalDateTime.now());
         return toDomain(repository.save(entity));
@@ -112,71 +122,105 @@ public class WarningRuleServiceImpl implements WarningRuleService {
     }
 
     @Override
+    public SemanticValidateResult validateSemantic(SemanticRuleConfig config, String sampleText) {
+        SemanticValidateResult base = semanticRuleValidator.validate(config);
+        if (!base.isValid()) {
+            return base;
+        }
+        if (sampleText == null || sampleText.trim().isEmpty()) {
+            return base;
+        }
+        SemanticMatchResult match = semanticRuleEvaluator.evaluate(sampleText, config);
+        return SemanticValidateResult.builder()
+                .valid(true)
+                .message(base.getMessage())
+                .sampleTriggered(match.isTriggered())
+                .sampleMatchReason(match.getReason())
+                .sampleMatchLayer(match.getLayer())
+                .build();
+    }
+
+    @Override
+    public List<String> expandKeywords(SemanticRuleConfig config) {
+        SemanticValidateResult validation = semanticRuleValidator.validate(config);
+        if (!validation.isValid()) {
+            throw new AtelierException(validation.getMessage());
+        }
+        return keywordExpansionService.expandKeywords(config, llmConfigLoader.load());
+    }
+
+    @Override
     public WarningRulePreviewResult previewRule(String id, int pageIndex, int pageSize,
                                                 List<FilterCondition> filters,
                                                 List<FilterGroup> filterGroups) {
         WarningRule rule = getRule(id)
                 .orElseThrow(() -> new AtelierException("预警规则不存在: " + id));
-        if (rule.getMetricCodes() == null || rule.getMetricCodes().isEmpty()) {
-            throw new AtelierException("规则未关联指标，无法预览");
-        }
-        if (rule.getExpression() == null || rule.getExpression().trim().isEmpty()) {
-            throw new AtelierException("规则表达式为空，无法预览");
-        }
-
-        int page = pageIndex <= 0 ? 1 : pageIndex;
-        int size = pageSize <= 0 ? 20 : pageSize;
-
-        MetricQueryRequest request = MetricQueryRequest.builder()
-                .metricCodes(rule.getMetricCodes())
-                .filters(filters)
-                .filterGroups(filterGroups)
-                .pageIndex(page)
-                .pageSize(size)
-                .applyRowAuth(false)
-                .build();
-        QueryResult queryResult = metricQueryService.query(request);
-        String sql = metricQueryService.compileOnly(request).getSql();
-
-        List<Map<String, Object>> previewRows = new ArrayList<>();
-        long matched = 0;
-        for (Map<String, Object> row : queryResult.getRows()) {
-            Map<String, Object> enriched = new LinkedHashMap<>(row);
-            boolean triggered = evaluateExpression(rule.getExpression(),
-                    buildMetricContext(row, rule.getMetricCodes()));
-            enriched.put(TRIGGERED_FIELD, triggered);
-            if (triggered) {
-                matched++;
-            }
-            previewRows.add(enriched);
-        }
-
-        Map<String, String> headers = new LinkedHashMap<>();
-        if (queryResult.getHeaders() != null) {
-            headers.putAll(queryResult.getHeaders());
-        }
-        headers.put(TRIGGERED_FIELD, "是否触发");
-
-        return WarningRulePreviewResult.builder()
-                .ruleId(rule.getId())
-                .ruleName(rule.getName())
-                .expression(rule.getExpression())
-                .sql(sql)
-                .total(queryResult.getTotal())
-                .matchedCount(matched)
-                .rows(previewRows)
-                .headers(headers)
-                .build();
+        return previewService.preview(rule, pageIndex, pageSize, filters, filterGroups);
     }
 
-    private Map<String, Object> buildMetricContext(Map<String, Object> row, List<String> metricCodes) {
-        Map<String, Object> context = new HashMap<>();
-        for (String code : metricCodes) {
-            if (row.containsKey(code)) {
-                context.put(code, row.get(code));
-            }
+    private void validateAndNormalizeRule(WarningRule rule, WarningRuleType ruleType) {
+        switch (ruleType) {
+            case METRIC:
+                validateMetricExpression(rule);
+                rule.setRuleConfig(null);
+                break;
+            case SEMANTIC:
+                validateSemanticConfig(requireSemantic(rule));
+                rule.setMetricCodes(Collections.emptyList());
+                rule.setExpression(null);
+                break;
+            case COMPOSITE:
+                validateMetricExpression(rule);
+                validateSemanticConfig(requireSemantic(rule));
+                if (rule.getRuleConfig().getTriggerLogic() == null
+                        || rule.getRuleConfig().getTriggerLogic().trim().isEmpty()) {
+                    rule.getRuleConfig().setTriggerLogic("AND");
+                }
+                break;
+            default:
+                throw new AtelierException("不支持的规则类型: " + ruleType);
         }
-        return context;
+    }
+
+    private void validateMetricExpression(WarningRule rule) {
+        ExpressionValidateResult validation = expressionValidator.validate(
+                rule.getExpression(), rule.getMetricCodes());
+        if (!validation.isValid()) {
+            throw new AtelierException(validation.getMessage());
+        }
+        if (validation.getNormalizedExpression() != null) {
+            rule.setExpression(validation.getNormalizedExpression());
+        }
+    }
+
+    private void validateSemanticConfig(SemanticRuleConfig semantic) {
+        SemanticValidateResult validation = semanticRuleValidator.validate(semantic);
+        if (!validation.isValid()) {
+            throw new AtelierException(validation.getMessage());
+        }
+        if (semantic.getMatchMode() == null || semantic.getMatchMode().trim().isEmpty()) {
+            semantic.setMatchMode("HYBRID");
+        }
+    }
+
+    private SemanticRuleConfig requireSemantic(WarningRule rule) {
+        if (rule.getRuleConfig() == null || rule.getRuleConfig().getSemantic() == null) {
+            throw new AtelierException("语义配置不能为空");
+        }
+        return rule.getRuleConfig().getSemantic();
+    }
+
+    private void maybeExpandKeywords(WarningRule rule, WarningRuleType ruleType) {
+        if (ruleType == WarningRuleType.METRIC) {
+            return;
+        }
+        SemanticRuleConfig semantic = requireSemantic(rule);
+        String mode = semantic.getMatchMode().toUpperCase();
+        if ("LLM".equals(mode)) {
+            return;
+        }
+        List<String> expanded = keywordExpansionService.expandKeywords(semantic, llmConfigLoader.load());
+        semantic.setExpandedKeywords(expanded);
     }
 
     private WarningRuleEntity newEntity(WarningRule rule) {
@@ -187,6 +231,7 @@ public class WarningRuleServiceImpl implements WarningRuleService {
     }
 
     private WarningRule toDomain(WarningRuleEntity entity) {
+        WarningRuleType ruleType = parseRuleType(entity.getRuleType());
         return WarningRule.builder()
                 .id(entity.getPkWarningRule())
                 .catalogCode(entity.getCatalogCode())
@@ -197,8 +242,17 @@ public class WarningRuleServiceImpl implements WarningRuleService {
                 .enabled(entity.getEnabled() != null && entity.getEnabled() == 1)
                 .warningLevel(entity.getWarningLevel())
                 .notifyConfig(entity.getNotifyConfig())
+                .ruleType(ruleType)
+                .ruleConfig(RuleConfigMapper.fromJson(entity.getRuleConfig()))
                 .comments(entity.getComments())
                 .build();
+    }
+
+    private WarningRuleType parseRuleType(String ruleType) {
+        if (ruleType == null || ruleType.trim().isEmpty()) {
+            return WarningRuleType.METRIC;
+        }
+        return WarningRuleType.valueOf(ruleType);
     }
 
     private String joinCodes(List<String> codes) {
@@ -210,7 +264,7 @@ public class WarningRuleServiceImpl implements WarningRuleService {
 
     private List<String> splitCodes(String codes) {
         if (codes == null || codes.trim().isEmpty()) {
-            return Collections.emptyList();
+            return new ArrayList<>();
         }
         return Arrays.stream(codes.split(","))
                 .map(String::trim)

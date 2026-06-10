@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.Map;
+
 /**
  * 数据源配置 — 对应 bd-platform 的 DataSourceVO 核心字段。
  */
@@ -30,4 +32,7 @@ public class DataSourceConfig {
     /** 是否启用，默认 true */
     @Builder.Default
     private boolean enabled = true;
+
+    /** JDBC 连接属性，如 useSSL、serverTimezone 等 */
+    private Map<String, String> connectionProperties;
 }

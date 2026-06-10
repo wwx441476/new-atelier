@@ -157,6 +157,7 @@ public class DataSourceController {
                 .password(request.getPassword() != null ? request.getPassword() : "")
                 .dbType(DbType.fromString(request.getDbType()))
                 .enabled(request.getEnabled() == null || request.getEnabled())
+                .connectionProperties(request.getConnectionProperties())
                 .build();
     }
 
@@ -168,6 +169,7 @@ public class DataSourceController {
                 .username(config.getUsername())
                 .dbType(config.getDbType() != null ? config.getDbType().name() : DbType.UNKNOWN.name())
                 .enabled(config.isEnabled())
+                .connectionProperties(config.getConnectionProperties())
                 .build();
     }
 
