@@ -18,6 +18,10 @@ public class SemanticRuleConfig {
 
     private String metaTableId;
 
+    /** 多字段语义条件组（组内 AND、组间 OR） */
+    private List<SemanticCheckGroup> semanticGroups;
+
+    /** @deprecated 兼容旧配置，加载时迁移为 semanticGroups */
     private String fieldCode;
 
     private String policy;

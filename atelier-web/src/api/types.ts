@@ -240,8 +240,25 @@ export interface WarningRule {
 
 export type WarningRuleType = 'METRIC' | 'SEMANTIC' | 'COMPOSITE';
 
+export type SemanticCheckMode = 'VIOLATION' | 'REQUIREMENT';
+
+export interface SemanticFieldCheck {
+  fieldCode?: string;
+  checkMode?: SemanticCheckMode;
+  policy?: string;
+  hintKeywords?: string[];
+  matchMode?: 'KEYWORD' | 'LLM' | 'HYBRID';
+  expandedKeywords?: string[];
+}
+
+export interface SemanticCheckGroup {
+  checks?: SemanticFieldCheck[];
+}
+
 export interface SemanticRuleConfig {
   metaTableId?: string;
+  semanticGroups?: SemanticCheckGroup[];
+  /** @deprecated 兼容旧配置 */
   fieldCode?: string;
   policy?: string;
   hintKeywords?: string[];
@@ -254,12 +271,22 @@ export interface CompositeRuleConfig {
   semantic?: SemanticRuleConfig;
 }
 
+export interface SemanticSampleCheckResult {
+  fieldCode?: string;
+  checkMode?: SemanticCheckMode;
+  subConditionMet?: boolean;
+  reason?: string;
+  layer?: string;
+  llmInvoked?: boolean;
+}
+
 export interface SemanticValidateResult {
   valid: boolean;
   message?: string;
   sampleTriggered?: boolean;
   sampleMatchReason?: string;
   sampleMatchLayer?: string;
+  sampleChecks?: SemanticSampleCheckResult[];
 }
 
 export interface SemanticLlmConfigResponse {

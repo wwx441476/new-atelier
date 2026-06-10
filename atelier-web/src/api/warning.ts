@@ -18,13 +18,21 @@ export const warningApi = {
       expression,
       metricCodes,
     }),
-  validateSemantic: (semanticConfig: SemanticRuleConfig, sampleText?: string) =>
+  validateSemantic: (
+    semanticConfig: SemanticRuleConfig,
+    sampleText?: string,
+    sampleRow?: Record<string, unknown>,
+  ) =>
     postData<SemanticValidateResult>('/warning/rules/validate-semantic', {
       semanticConfig,
       sampleText,
+      sampleRow,
     }),
   expandKeywords: (semanticConfig: SemanticRuleConfig) =>
-    postData<{ keywords: string[] }>('/warning/rules/expand-keywords', { semanticConfig }),
+    postData<{ expandedByField: Record<string, string[]> }>(
+      '/warning/rules/expand-keywords',
+      { semanticConfig },
+    ),
   evaluate: (expression: string, metricValues: Record<string, unknown>) =>
     postData<{ triggered: boolean }>('/warning/rules/evaluate', { expression, metricValues }),
   previewRule: (id: string, request: WarningRulePreviewRequest = {}) =>

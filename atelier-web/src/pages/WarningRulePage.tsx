@@ -44,6 +44,7 @@ import {
   type FilterGroupForm,
   type FilterQuery,
 } from '../utils/queryFilters';
+import { createDefaultSemanticGroup, normalizeSemanticConfig } from '../utils/semanticRuleForm';
 
 export default function WarningRulePage() {
   const [loading, setLoading] = useState(false);
@@ -107,7 +108,10 @@ export default function WarningRulePage() {
       enabled: true,
       warningLevel: 2,
       ruleType: 'METRIC',
-      ruleConfig: { triggerLogic: 'AND', semantic: { matchMode: 'HYBRID' } },
+      ruleConfig: {
+        triggerLogic: 'AND',
+        semantic: { semanticGroups: [createDefaultSemanticGroup()] },
+      },
     });
     setModalOpen(true);
   };
@@ -128,10 +132,7 @@ export default function WarningRulePage() {
       comments: record.comments,
       ruleConfig: {
         triggerLogic: record.ruleConfig?.triggerLogic ?? 'AND',
-        semantic: {
-          matchMode: 'HYBRID',
-          ...record.ruleConfig?.semantic,
-        },
+        semantic: normalizeSemanticConfig(record.ruleConfig?.semantic),
       },
     });
     setModalOpen(true);
@@ -140,13 +141,21 @@ export default function WarningRulePage() {
   const formatRuleSummary = (record: WarningRule) => {
     const type = record.ruleType || 'METRIC';
     if (type === 'SEMANTIC') {
-      const field = record.ruleConfig?.semantic?.fieldCode || '字段';
-      return `[语义] ${field} · 合规检测`;
+      const semantic = normalizeSemanticConfig(record.ruleConfig?.semantic);
+      const fields =
+        semantic.semanticGroups?.flatMap((g) => g.checks?.map((c) => c.fieldCode).filter(Boolean) || []) ||
+        [];
+      const label = fields.length ? fields.join('+') : '多字段';
+      return `[语义] ${label} · 合规检测`;
     }
     if (type === 'COMPOSITE') {
       const logic = record.ruleConfig?.triggerLogic === 'OR' ? '或' : '且';
-      const field = record.ruleConfig?.semantic?.fieldCode || '字段';
-      return `[组合] ${record.expression || ''} ${logic} ${field}·语义`;
+      const semantic = normalizeSemanticConfig(record.ruleConfig?.semantic);
+      const fields =
+        semantic.semanticGroups?.flatMap((g) => g.checks?.map((c) => c.fieldCode).filter(Boolean) || []) ||
+        [];
+      const label = fields.length ? fields.join('+') : '语义';
+      return `[组合] ${record.expression || ''} ${logic} ${label}`;
     }
     return record.expression || '-';
   };
@@ -159,14 +168,15 @@ export default function WarningRulePage() {
     }
     const ruleType = values.ruleType || 'METRIC';
     const payload: WarningRule = { ...values, ruleType };
+    const normalizedSemantic = normalizeSemanticConfig(values.ruleConfig?.semantic);
     if (ruleType === 'SEMANTIC') {
       payload.metricCodes = [];
       payload.expression = undefined;
-      payload.ruleConfig = { semantic: values.ruleConfig?.semantic };
+      payload.ruleConfig = { semantic: normalizedSemantic };
     } else if (ruleType === 'COMPOSITE') {
       payload.ruleConfig = {
         triggerLogic: values.ruleConfig?.triggerLogic || 'AND',
-        semantic: values.ruleConfig?.semantic,
+        semantic: normalizedSemantic,
       };
     } else {
       payload.ruleConfig = undefined;
@@ -302,7 +312,12 @@ export default function WarningRulePage() {
       (key) =>
         !['_triggered', '_matchReason', '_matchLayer', '_llmInvoked', '_metricTriggered', '_semanticTriggered'].includes(
           key,
-        ) && !metricCodes.includes(key),
+        ) &&
+        !key.startsWith('_semanticCheck.') &&
+        !key.startsWith('_matchReason.') &&
+        !key.startsWith('_matchLayer.') &&
+        !key.startsWith('_llmInvoked.') &&
+        !metricCodes.includes(key),
     );
   }, [previewResult, previewRule]);
 
@@ -312,6 +327,13 @@ export default function WarningRulePage() {
       : Object.keys(previewResult?.headers || {});
     const metricCodes = previewRule?.metricCodes || [];
     const dimensionKeys = previewDimensionKeys;
+    const semanticDetailKeys = rowKeys.filter(
+      (key) =>
+        key.startsWith('_semanticCheck.') ||
+        key.startsWith('_matchReason.') ||
+        key.startsWith('_matchLayer.') ||
+        key.startsWith('_llmInvoked.'),
+    );
     const extraKeys = [
       '_metricTriggered',
       '_semanticTriggered',
@@ -323,6 +345,7 @@ export default function WarningRulePage() {
     const orderedKeys = [
       ...dimensionKeys,
       ...metricCodes.filter((code) => rowKeys.includes(code)),
+      ...semanticDetailKeys,
       ...extraKeys.filter((key) => rowKeys.includes(key)),
     ];
     const dimensionKeySet = new Set(dimensionKeys);
@@ -332,14 +355,19 @@ export default function WarningRulePage() {
       width: key === '_triggered' ? 100 : undefined,
       ellipsis: key !== '_triggered',
       render: (value: unknown) => {
-        if (key === '_triggered' || key === '_metricTriggered' || key === '_semanticTriggered') {
+        if (
+          key === '_triggered' ||
+          key === '_metricTriggered' ||
+          key === '_semanticTriggered' ||
+          key.startsWith('_semanticCheck.')
+        ) {
           return value ? (
             <Tag color="error">是</Tag>
           ) : (
             <Tag color="default">否</Tag>
           );
         }
-        if (key === '_llmInvoked') {
+        if (key === '_llmInvoked' || key.startsWith('_llmInvoked.')) {
           return value ? (
             <Tag color="processing">是</Tag>
           ) : (
@@ -601,7 +629,10 @@ export default function WarningRulePage() {
             </Form.Item>
           )}
           {(selectedRuleType === 'SEMANTIC' || selectedRuleType === 'COMPOSITE') && (
-            <SemanticRuleConfigForm llmSettingsOpen={() => setLlmSettingsOpen(true)} />
+            <SemanticRuleConfigForm
+              configActive={modalOpen}
+              llmSettingsOpen={() => setLlmSettingsOpen(true)}
+            />
           )}
           <Form.Item name="warningLevel" label="预警级别">
             <Select
@@ -616,7 +647,11 @@ export default function WarningRulePage() {
           </Form.Item>
         </Form>
       </Modal>
-      <SemanticLlmSettingsModal open={llmSettingsOpen} onClose={() => setLlmSettingsOpen(false)} />
+      <SemanticLlmSettingsModal
+        open={llmSettingsOpen}
+        onClose={() => setLlmSettingsOpen(false)}
+        onSaved={() => setLlmSettingsOpen(false)}
+      />
     </>
   );
 }

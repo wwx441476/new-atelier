@@ -5,14 +5,16 @@ import com.example.atelier.domain.metric.FilterGroup;
 import com.example.atelier.domain.query.MetricQueryRequest;
 import com.example.atelier.domain.query.QueryResult;
 import com.example.atelier.domain.warning.CompositeRuleConfig;
-import com.example.atelier.domain.warning.SemanticMatchResult;
+import com.example.atelier.domain.warning.SemanticGroupMatchResult;
 import com.example.atelier.domain.warning.SemanticRuleConfig;
+import com.example.atelier.warning.evaluator.SemanticRuleConfigSupport;
 import com.example.atelier.domain.warning.WarningRule;
 import com.example.atelier.domain.warning.WarningRulePreviewResult;
 import com.example.atelier.domain.warning.WarningRuleType;
 import com.example.atelier.infra.exception.AtelierException;
 import com.example.atelier.metadata.spi.MetadataService;
 import com.example.atelier.query.service.MetricQueryService;
+import com.example.atelier.warning.evaluator.RowMetricContextResolver;
 import com.example.atelier.warning.evaluator.WarningExpressionEvaluator;
 import org.springframework.stereotype.Service;
 
@@ -107,12 +109,11 @@ public class WarningRulePreviewService {
         long matched = 0;
         for (Map<String, Object> row : queryResult.getRows()) {
             Map<String, Object> enriched = new LinkedHashMap<>(row);
-            SemanticMatchResult match = evaluateSemanticRow(row, semantic);
-            enriched.put(TRIGGERED_FIELD, match.isTriggered());
-            enriched.put(MATCH_REASON_FIELD, match.getReason());
-            enriched.put(MATCH_LAYER_FIELD, match.getLayer());
-            enriched.put(LLM_INVOKED_FIELD, match.isLlmInvoked());
-            if (match.isTriggered()) {
+            SemanticGroupMatchResult groupResult = semanticRuleEvaluator.evaluateRow(row, semantic);
+            enriched.put(TRIGGERED_FIELD, groupResult.isTriggered());
+            enriched.put(SEMANTIC_TRIGGERED_FIELD, groupResult.isTriggered());
+            SemanticPreviewSupport.enrichRow(enriched, groupResult);
+            if (groupResult.isTriggered()) {
                 matched++;
             }
             previewRows.add(enriched);
@@ -120,11 +121,10 @@ public class WarningRulePreviewService {
 
         Map<String, String> headers = buildHeaders(queryResult.getHeaders());
         headers.put(TRIGGERED_FIELD, "是否触发");
-        headers.put(MATCH_REASON_FIELD, "命中原因");
-        headers.put(MATCH_LAYER_FIELD, "判定层");
-        headers.put(LLM_INVOKED_FIELD, "LLM调用");
+        headers.put(SEMANTIC_TRIGGERED_FIELD, "语义触发");
+        SemanticPreviewSupport.putHeaders(headers, semantic);
 
-        return buildResult(rule, summarizeSemantic(semantic), queryResult.getSql(),
+        return buildResult(rule, SemanticPreviewSupport.summarizeSemantic(semantic), queryResult.getSql(),
                 queryResult.getTotal(), matched, previewRows, headers);
     }
 
@@ -144,8 +144,8 @@ public class WarningRulePreviewService {
             Map<String, Object> enriched = new LinkedHashMap<>(row);
             boolean metricTriggered = expressionEvaluator.evaluate(rule.getExpression(),
                     buildMetricContext(row, rule.getMetricCodes()));
-            SemanticMatchResult semanticMatch = evaluateSemanticRow(row, semantic);
-            boolean semanticTriggered = semanticMatch.isTriggered();
+            SemanticGroupMatchResult groupResult = semanticRuleEvaluator.evaluateRow(row, semantic);
+            boolean semanticTriggered = groupResult.isTriggered();
             boolean triggered = andLogic
                     ? metricTriggered && semanticTriggered
                     : metricTriggered || semanticTriggered;
@@ -153,9 +153,7 @@ public class WarningRulePreviewService {
             enriched.put(METRIC_TRIGGERED_FIELD, metricTriggered);
             enriched.put(SEMANTIC_TRIGGERED_FIELD, semanticTriggered);
             enriched.put(TRIGGERED_FIELD, triggered);
-            enriched.put(MATCH_REASON_FIELD, semanticMatch.getReason());
-            enriched.put(MATCH_LAYER_FIELD, semanticMatch.getLayer());
-            enriched.put(LLM_INVOKED_FIELD, semanticMatch.isLlmInvoked());
+            SemanticPreviewSupport.enrichRow(enriched, groupResult);
             if (triggered) {
                 matched++;
             }
@@ -164,20 +162,12 @@ public class WarningRulePreviewService {
 
         Map<String, String> headers = buildHeaders(queryResult.getHeaders());
         headers.put(METRIC_TRIGGERED_FIELD, "指标触发");
-        headers.put(SEMANTIC_TRIGGERED_FIELD, "语义触发");
         headers.put(TRIGGERED_FIELD, "是否触发");
-        headers.put(MATCH_REASON_FIELD, "语义原因");
-        headers.put(MATCH_LAYER_FIELD, "语义层");
-        headers.put(LLM_INVOKED_FIELD, "LLM调用");
+        SemanticPreviewSupport.putHeaders(headers, semantic);
 
-        String summary = rule.getExpression() + " " + (andLogic ? "且" : "或") + " " + summarizeSemantic(semantic);
+        String summary = rule.getExpression() + " " + (andLogic ? "且" : "或") + " "
+                + SemanticPreviewSupport.summarizeSemantic(semantic);
         return buildResult(rule, summary, queryResult.getSql(), queryResult.getTotal(), matched, previewRows, headers);
-    }
-
-    private SemanticMatchResult evaluateSemanticRow(Map<String, Object> row, SemanticRuleConfig semantic) {
-        Object raw = row.get(semantic.getFieldCode());
-        String text = raw != null ? String.valueOf(raw) : "";
-        return semanticRuleEvaluator.evaluate(text, semantic);
     }
 
     private SemanticRuleConfig requireSemanticConfig(WarningRule rule) {
@@ -188,8 +178,8 @@ public class WarningRulePreviewService {
         if (semantic.getMetaTableId() == null || semantic.getMetaTableId().trim().isEmpty()) {
             throw new AtelierException("请选择元数据表");
         }
-        if (semantic.getFieldCode() == null || semantic.getFieldCode().trim().isEmpty()) {
-            throw new AtelierException("请选择检测字段");
+        if (SemanticRuleConfigSupport.normalizeGroups(semantic).isEmpty()) {
+            throw new AtelierException("请配置语义条件");
         }
         return semantic;
     }
@@ -204,13 +194,7 @@ public class WarningRulePreviewService {
     }
 
     private Map<String, Object> buildMetricContext(Map<String, Object> row, List<String> metricCodes) {
-        Map<String, Object> context = new HashMap<>();
-        for (String code : metricCodes) {
-            if (row.containsKey(code)) {
-                context.put(code, row.get(code));
-            }
-        }
-        return context;
+        return RowMetricContextResolver.buildContext(row, metricCodes);
     }
 
     private Map<String, String> buildHeaders(Map<String, String> source) {
@@ -235,10 +219,6 @@ public class WarningRulePreviewService {
                 .rows(rows)
                 .headers(headers)
                 .build();
-    }
-
-    private String summarizeSemantic(SemanticRuleConfig semantic) {
-        return semantic.getFieldCode() + "·语义合规";
     }
 
     private int normalizePage(int pageIndex) {

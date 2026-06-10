@@ -1,10 +1,14 @@
 package com.example.atelier.warning.evaluator;
 
+import com.example.atelier.domain.warning.SemanticCheckGroup;
+import com.example.atelier.domain.warning.SemanticFieldCheck;
 import com.example.atelier.domain.warning.SemanticRuleConfig;
 import com.example.atelier.domain.warning.SemanticValidateResult;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class SemanticRuleValidator {
 
@@ -16,11 +20,28 @@ public class SemanticRuleValidator {
             if (isBlank(config.getMetaTableId())) {
                 errors.add("请选择元数据表");
             }
-            if (isBlank(config.getFieldCode())) {
-                errors.add("请选择检测字段");
+            List<SemanticCheckGroup> groups = SemanticRuleConfigSupport.normalizeGroups(config);
+            if (groups.isEmpty()) {
+                errors.add("请至少配置一条语义条件");
             }
-            if (isBlank(config.getPolicy())) {
-                errors.add("请填写合规策略");
+            int groupIndex = 0;
+            for (SemanticCheckGroup group : groups) {
+                groupIndex++;
+                if (group.getChecks() == null || group.getChecks().isEmpty()) {
+                    errors.add("条件组 " + groupIndex + " 不能为空");
+                    continue;
+                }
+                Set<String> fieldsInGroup = new HashSet<>();
+                for (SemanticFieldCheck check : group.getChecks()) {
+                    if (isBlank(check.getFieldCode())) {
+                        errors.add("条件组 " + groupIndex + " 存在未选择字段的条件");
+                    } else if (!fieldsInGroup.add(check.getFieldCode().trim())) {
+                        errors.add("条件组 " + groupIndex + " 中字段 " + check.getFieldCode() + " 重复");
+                    }
+                    if (isBlank(check.getPolicy())) {
+                        errors.add("字段 " + check.getFieldCode() + " 的策略不能为空");
+                    }
+                }
             }
         }
         boolean valid = errors.isEmpty();

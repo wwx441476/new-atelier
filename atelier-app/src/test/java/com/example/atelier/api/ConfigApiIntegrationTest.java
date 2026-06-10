@@ -4,6 +4,8 @@ import com.example.atelier.api.dto.ApiResponse;
 import com.example.atelier.domain.config.AtelierConfigBundle;
 import com.example.atelier.domain.config.ConfigImportOptions;
 import com.example.atelier.domain.config.ConfigImportResult;
+import com.example.atelier.domain.warning.WarningRule;
+import com.example.atelier.domain.warning.WarningRuleType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -45,6 +47,17 @@ public class ConfigApiIntegrationTest {
         assertTrue(bundle.getDatasources().stream().anyMatch(ds -> "ds-demo".equals(ds.getId())));
         assertTrue(bundle.getMetrics().stream().anyMatch(m -> "profit".equals(m.getCode())));
         assertTrue(bundle.getWarningRules().stream().anyMatch(r -> "low_profit".equals(r.getCode())));
+        assertTrue(bundle.getWarningRules().stream().anyMatch(r -> "bad_remark".equals(r.getCode())));
+        assertTrue(bundle.getWarningRules().stream().anyMatch(r -> "low_profit_bad_remark".equals(r.getCode())));
+
+        WarningRule semanticRule = bundle.getWarningRules().stream()
+                .filter(r -> "bad_remark".equals(r.getCode()))
+                .findFirst()
+                .orElse(null);
+        assertNotNull(semanticRule);
+        assertEquals(WarningRuleType.SEMANTIC, semanticRule.getRuleType());
+        assertNotNull(semanticRule.getRuleConfig());
+        assertNotNull(semanticRule.getRuleConfig().getSemantic());
     }
 
     @Test

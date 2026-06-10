@@ -1,37 +1,75 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Form, Input, Radio, Select, Space, Tag, Typography, message } from 'antd';
+import { Alert, Button, Form, Select, Space, Typography, message } from 'antd';
 import { metadataApi } from '../api/metadata';
 import { settingsApi } from '../api/settings';
 import { warningApi } from '../api/warning';
-import type { MetaTable, MetaTableField } from '../api/types';
+import type { MetaTable } from '../api/types';
+import SemanticCheckGroupsForm from './SemanticCheckGroupsForm';
+import SemanticSampleTryPanel from './SemanticSampleTryPanel';
+import { normalizeSemanticConfig } from '../utils/semanticRuleForm';
+import { SEMANTIC_LLM_UPDATED_EVENT } from '../utils/semanticLlmEvents';
 
 interface SemanticRuleConfigFormProps {
   llmSettingsOpen?: () => void;
+  /** 规则编辑弹窗打开时为 true，用于重新拉取 LLM 配置 */
+  configActive?: boolean;
 }
 
 const TEXT_FIELD_TYPES = ['VARCHAR', 'CHAR', 'TEXT', 'CLOB', 'STRING'];
 
-/** 隐藏字段占位，支持 string[] 等非字符串值 */
-function HiddenFieldHolder(_props: { value?: unknown; onChange?: (value: unknown) => void }) {
-  return null;
-}
-
-export default function SemanticRuleConfigForm({ llmSettingsOpen }: SemanticRuleConfigFormProps) {
+export default function SemanticRuleConfigForm({
+  llmSettingsOpen,
+  configActive,
+}: SemanticRuleConfigFormProps) {
   const form = Form.useFormInstance();
   const metaTableId = Form.useWatch(['ruleConfig', 'semantic', 'metaTableId'], form) as
     | string
     | undefined;
+  const semanticConfig = Form.useWatch(['ruleConfig', 'semantic'], form);
   const [tables, setTables] = useState<MetaTable[]>([]);
-  const [fields, setFields] = useState<MetaTableField[]>([]);
+  const [fields, setFields] = useState<{ fieldCode: string; fieldName?: string; fieldType?: string }[]>(
+    [],
+  );
   const [llmConfigured, setLlmConfigured] = useState(false);
+  const [llmSummary, setLlmSummary] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [expanding, setExpanding] = useState(false);
 
+  const refreshLlmStatus = useCallback(() => {
+    settingsApi
+      .getSemanticLlm()
+      .then((c) => {
+        const configured = Boolean(c.enabled && c.apiKeyConfigured);
+        setLlmConfigured(configured);
+        if (configured && c.provider && c.model) {
+          setLlmSummary(`${c.provider} / ${c.model}`);
+        } else {
+          setLlmSummary(null);
+        }
+      })
+      .catch(() => {
+        setLlmConfigured(false);
+        setLlmSummary(null);
+      });
+  }, []);
+
   useEffect(() => {
     metadataApi.listTables().then(setTables);
-    settingsApi.getSemanticLlm().then((c) => setLlmConfigured(c.enabled && c.apiKeyConfigured));
-  }, []);
+    refreshLlmStatus();
+  }, [refreshLlmStatus]);
+
+  useEffect(() => {
+    const handleLlmUpdated = () => refreshLlmStatus();
+    window.addEventListener(SEMANTIC_LLM_UPDATED_EVENT, handleLlmUpdated);
+    return () => window.removeEventListener(SEMANTIC_LLM_UPDATED_EVENT, handleLlmUpdated);
+  }, [refreshLlmStatus]);
+
+  useEffect(() => {
+    if (configActive) {
+      refreshLlmStatus();
+    }
+  }, [configActive, refreshLlmStatus]);
 
   useEffect(() => {
     if (!metaTableId) {
@@ -62,9 +100,17 @@ export default function SemanticRuleConfigForm({ llmSettingsOpen }: SemanticRule
       value: t.id!,
     }));
 
-  const runValidate = useCallback(async () => {
-    const semantic = form.getFieldValue(['ruleConfig', 'semantic']);
-    if (!semantic?.policy?.trim()) {
+  const fieldLabelMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    textFieldOptions.forEach((opt) => {
+      map[opt.value] = opt.label;
+    });
+    return map;
+  }, [textFieldOptions]);
+
+  const runValidate = async () => {
+    const semantic = normalizeSemanticConfig(form.getFieldValue(['ruleConfig', 'semantic']));
+    if (!semantic.semanticGroups?.some((g) => g.checks?.some((c) => c.policy?.trim()))) {
       setValidationMessage(null);
       return;
     }
@@ -77,15 +123,28 @@ export default function SemanticRuleConfigForm({ llmSettingsOpen }: SemanticRule
     } finally {
       setValidating(false);
     }
-  }, [form]);
+  };
 
   const handleExpandKeywords = async () => {
-    const semantic = form.getFieldValue(['ruleConfig', 'semantic']);
+    const semantic = normalizeSemanticConfig(form.getFieldValue(['ruleConfig', 'semantic']));
     setExpanding(true);
     try {
       const result = await warningApi.expandKeywords(semantic);
-      form.setFieldValue(['ruleConfig', 'semantic', 'expandedKeywords'], result.keywords);
-      message.success(`已扩展 ${result.keywords.length} 个关键词`);
+      const groups = semantic.semanticGroups || [];
+      groups.forEach((group, groupIndex) => {
+        group.checks?.forEach((check, checkIndex) => {
+          const fieldCode = check.fieldCode;
+          if (!fieldCode || !result.expandedByField[fieldCode]) {
+            return;
+          }
+          form.setFieldValue(
+            ['ruleConfig', 'semantic', 'semanticGroups', groupIndex, 'checks', checkIndex, 'expandedKeywords'],
+            result.expandedByField[fieldCode],
+          );
+        });
+      });
+      const total = Object.values(result.expandedByField).reduce((sum, list) => sum + list.length, 0);
+      message.success(`已扩展 ${total} 个关键词`);
     } catch (err) {
       message.error(err instanceof Error ? err.message : '扩展失败');
     } finally {
@@ -95,12 +154,23 @@ export default function SemanticRuleConfigForm({ llmSettingsOpen }: SemanticRule
 
   return (
     <div>
-      {!llmConfigured && (
+      {llmConfigured ? (
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={
+            llmSummary
+              ? `LLM 已启用（${llmSummary}），混合模式将使用词库 + 大模型判定。`
+              : 'LLM 已启用，混合模式将使用词库 + 大模型判定。'
+          }
+        />
+      ) : (
         <Alert
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message="LLM 未配置或未启用，混合模式将仅使用词库匹配。"
+          message="LLM 未配置或未启用，混合模式将仅使用词库匹配。保存设置后本页会自动刷新状态。"
           action={
             llmSettingsOpen ? (
               <Button size="small" type="link" onClick={llmSettingsOpen}>
@@ -117,44 +187,7 @@ export default function SemanticRuleConfigForm({ llmSettingsOpen }: SemanticRule
       >
         <Select placeholder="选择表" options={tableOptions} showSearch optionFilterProp="label" />
       </Form.Item>
-      <Form.Item
-        name={['ruleConfig', 'semantic', 'fieldCode']}
-        label="检测字段"
-        rules={[{ required: true, message: '请选择文本字段' }]}
-      >
-        <Select
-          placeholder="选择文本字段"
-          options={textFieldOptions}
-          showSearch
-          optionFilterProp="label"
-          disabled={!metaTableId}
-        />
-      </Form.Item>
-      <Form.Item
-        name={['ruleConfig', 'semantic', 'policy']}
-        label="合规策略"
-        rules={[{ required: true, message: '请描述禁止内容' }]}
-      >
-        <Input.TextArea
-          rows={3}
-          placeholder="如：备注中不得包含烟酒相关内容，包括茅台、五粮液等品牌…"
-          onBlur={runValidate}
-        />
-      </Form.Item>
-      <Form.Item name={['ruleConfig', 'semantic', 'hintKeywords']} label="示例词（可选）">
-        <Select mode="tags" placeholder="输入后回车，如：烟、酒、茅台" tokenSeparators={[',', '，']} />
-      </Form.Item>
-      <Form.Item
-        name={['ruleConfig', 'semantic', 'matchMode']}
-        label="判定方式"
-        initialValue="HYBRID"
-      >
-        <Radio.Group>
-          <Radio value="HYBRID">混合（词库 + LLM）</Radio>
-          <Radio value="KEYWORD">仅词库</Radio>
-          <Radio value="LLM">仅 LLM</Radio>
-        </Radio.Group>
-      </Form.Item>
+      <SemanticCheckGroupsForm textFieldOptions={textFieldOptions} metaTableId={metaTableId} />
       <Space style={{ marginBottom: 12 }}>
         <Button size="small" loading={expanding} onClick={handleExpandKeywords}>
           扩展词库
@@ -168,32 +201,7 @@ export default function SemanticRuleConfigForm({ llmSettingsOpen }: SemanticRule
           {validationMessage}
         </Typography.Text>
       )}
-      <Form.Item name={['ruleConfig', 'semantic', 'expandedKeywords']} hidden>
-        <HiddenFieldHolder />
-      </Form.Item>
-      <Form.Item noStyle shouldUpdate>
-        {() => {
-          const expanded = form.getFieldValue(['ruleConfig', 'semantic', 'expandedKeywords']) as
-            | string[]
-            | undefined;
-          if (!expanded?.length) {
-            return null;
-          }
-          return (
-            <div style={{ marginBottom: 8 }}>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                扩展词库：
-              </Typography.Text>
-              {expanded.slice(0, 12).map((k) => (
-                <Tag key={k} style={{ marginTop: 4 }}>
-                  {k}
-                </Tag>
-              ))}
-              {expanded.length > 12 && <Tag>+{expanded.length - 12}</Tag>}
-            </div>
-          );
-        }}
-      </Form.Item>
+      <SemanticSampleTryPanel semanticConfig={semanticConfig} fieldLabels={fieldLabelMap} />
     </div>
   );
 }

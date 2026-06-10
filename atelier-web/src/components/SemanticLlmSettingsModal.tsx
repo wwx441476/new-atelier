@@ -10,10 +10,12 @@ import {
   resolveModelForBaseUrl,
   type LlmProviderId,
 } from '../utils/llmProviderPresets';
+import { notifySemanticLlmUpdated } from '../utils/semanticLlmEvents';
 
 interface SemanticLlmSettingsModalProps {
   open: boolean;
   onClose: () => void;
+  onSaved?: () => void;
 }
 
 const PROVIDER_OPTIONS = (Object.keys(LLM_PROVIDER_PRESETS) as LlmProviderId[]).map((id) => ({
@@ -31,7 +33,7 @@ function inferProvider(baseUrl?: string, provider?: string): LlmProviderId {
   return 'openai';
 }
 
-export default function SemanticLlmSettingsModal({ open, onClose }: SemanticLlmSettingsModalProps) {
+export default function SemanticLlmSettingsModal({ open, onClose, onSaved }: SemanticLlmSettingsModalProps) {
   const [form] = Form.useForm<SemanticLlmConfigRequest>();
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -95,8 +97,11 @@ export default function SemanticLlmSettingsModal({ open, onClose }: SemanticLlmS
     const values = normalizePayload(await form.validateFields());
     setLoading(true);
     try {
-      await settingsApi.saveSemanticLlm(values);
+      const saved = await settingsApi.saveSemanticLlm(values);
+      setApiKeyConfigured(saved.apiKeyConfigured);
       message.success('语义检测 LLM 配置已保存');
+      notifySemanticLlmUpdated();
+      onSaved?.();
       onClose();
     } finally {
       setLoading(false);
@@ -155,7 +160,11 @@ export default function SemanticLlmSettingsModal({ open, onClose }: SemanticLlmS
           message="Kimi Coding Plan 与 cc switch 相同：API 地址 https://api.kimi.com/coding，模型 kimi-k2.6，走 Anthropic 协议。"
         />
       )}
-      <Form form={form} layout="vertical" initialValues={{ provider: 'openai', timeoutSeconds: 30 }}>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{ provider: 'openai', timeoutSeconds: 30, enabled: false }}
+      >
         <Form.Item name="enabled" label="启用 LLM" valuePropName="checked">
           <Switch />
         </Form.Item>

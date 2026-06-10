@@ -132,5 +132,6 @@ CREATE TABLE IF NOT EXISTS orders (
     fiscal_year VARCHAR(10),
     amount DECIMAL(18, 2),
     cost_amount DECIMAL(18, 2),
-    remark VARCHAR(500)
+    remark VARCHAR(500),
+    project_name VARCHAR(200)
 );

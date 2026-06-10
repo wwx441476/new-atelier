@@ -12,6 +12,7 @@ import com.example.atelier.domain.warning.SemanticValidateResult;
 import com.example.atelier.domain.warning.WarningRule;
 import com.example.atelier.domain.warning.WarningRulePreviewResult;
 import com.example.atelier.warning.spi.WarningRuleService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,6 +33,8 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/v2/warning/rules")
 public class WarningRuleController {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final WarningRuleService warningRuleService;
 
@@ -106,19 +109,20 @@ public class WarningRuleController {
     public ApiResponse<SemanticValidateResult> validateSemantic(@RequestBody Map<String, Object> request) {
         SemanticRuleConfig config = parseSemanticConfig(request.get("semanticConfig"));
         String sampleText = (String) request.get("sampleText");
-        return ApiResponse.ok(warningRuleService.validateSemantic(config, sampleText));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> sampleRow = (Map<String, Object>) request.get("sampleRow");
+        return ApiResponse.ok(warningRuleService.validateSemantic(config, sampleText, sampleRow));
     }
 
     @PostMapping("/expand-keywords")
     public ApiResponse<Map<String, Object>> expandKeywords(@RequestBody Map<String, Object> request) {
         SemanticRuleConfig config = parseSemanticConfig(request.get("semanticConfig"));
-        List<String> keywords = warningRuleService.expandKeywords(config);
+        Map<String, List<String>> expandedByField = warningRuleService.expandKeywords(config);
         Map<String, Object> result = new HashMap<>();
-        result.put("keywords", keywords);
+        result.put("expandedByField", expandedByField);
         return ApiResponse.ok(result);
     }
 
-    @SuppressWarnings("unchecked")
     private SemanticRuleConfig parseSemanticConfig(Object raw) {
         if (raw == null) {
             return null;
@@ -126,24 +130,7 @@ public class WarningRuleController {
         if (raw instanceof SemanticRuleConfig) {
             return (SemanticRuleConfig) raw;
         }
-        if (raw instanceof Map) {
-            Map<String, Object> map = (Map<String, Object>) raw;
-            SemanticRuleConfig config = new SemanticRuleConfig();
-            config.setMetaTableId((String) map.get("metaTableId"));
-            config.setFieldCode((String) map.get("fieldCode"));
-            config.setPolicy((String) map.get("policy"));
-            config.setMatchMode((String) map.get("matchMode"));
-            Object hints = map.get("hintKeywords");
-            if (hints instanceof List) {
-                config.setHintKeywords((List<String>) hints);
-            }
-            Object expanded = map.get("expandedKeywords");
-            if (expanded instanceof List) {
-                config.setExpandedKeywords((List<String>) expanded);
-            }
-            return config;
-        }
-        return null;
+        return MAPPER.convertValue(raw, SemanticRuleConfig.class);
     }
 
     private List<FilterCondition> toFilterConditions(List<MetricQueryApiRequest.FilterDto> filters) {

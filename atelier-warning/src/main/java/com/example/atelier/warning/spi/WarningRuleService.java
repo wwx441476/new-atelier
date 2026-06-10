@@ -31,9 +31,10 @@ public interface WarningRuleService {
 
     ExpressionValidateResult validateExpression(String expression, List<String> metricCodes);
 
-    SemanticValidateResult validateSemantic(SemanticRuleConfig config, String sampleText);
+    SemanticValidateResult validateSemantic(SemanticRuleConfig config, String sampleText,
+                                            Map<String, Object> sampleRow);
 
-    List<String> expandKeywords(SemanticRuleConfig config);
+    Map<String, List<String>> expandKeywords(SemanticRuleConfig config);
 
     WarningRulePreviewResult previewRule(String id, int pageIndex, int pageSize,
                                        List<FilterCondition> filters, List<FilterGroup> filterGroups);

@@ -1,9 +1,17 @@
 package com.example.atelier.warning.service;
 
+import com.example.atelier.domain.warning.SemanticFieldCheck;
+import com.example.atelier.domain.warning.SemanticGroupMatchResult;
 import com.example.atelier.domain.warning.SemanticMatchResult;
 import com.example.atelier.domain.warning.SemanticRuleConfig;
-import com.example.atelier.warning.evaluator.HybridSemanticMatcher;
+import com.example.atelier.warning.evaluator.SemanticFieldCheckEvaluator;
+import com.example.atelier.warning.evaluator.SemanticGroupEvaluator;
+import com.example.atelier.warning.evaluator.SemanticRuleConfigSupport;
 import org.springframework.stereotype.Service;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class SemanticRuleEvaluator {
@@ -14,8 +22,39 @@ public class SemanticRuleEvaluator {
         this.llmConfigLoader = llmConfigLoader;
     }
 
+    public SemanticGroupMatchResult evaluateRow(Map<String, Object> row, SemanticRuleConfig config) {
+        return groupEvaluator().evaluate(row, config);
+    }
+
+    /** 兼容单文本样例校验 */
     public SemanticMatchResult evaluate(String text, SemanticRuleConfig config) {
-        HybridSemanticMatcher matcher = new HybridSemanticMatcher(llmConfigLoader.load());
-        return matcher.match(text, config);
+        List<SemanticFieldCheck> checks = SemanticRuleConfigSupport.flattenChecks(config);
+        if (checks.isEmpty()) {
+            return SemanticMatchResult.builder().triggered(false).layer("none").build();
+        }
+        SemanticFieldCheck first = checks.get(0);
+        return fieldEvaluator().evaluateMatchResult(text, first);
+    }
+
+    public SemanticGroupMatchResult evaluateSampleRow(Map<String, Object> sampleRow, SemanticRuleConfig config) {
+        if (sampleRow == null || sampleRow.isEmpty()) {
+            String fieldCode = config != null ? config.getFieldCode() : null;
+            if (fieldCode == null && config != null && config.getSemanticGroups() != null
+                    && !config.getSemanticGroups().isEmpty()
+                    && config.getSemanticGroups().get(0).getChecks() != null
+                    && !config.getSemanticGroups().get(0).getChecks().isEmpty()) {
+                fieldCode = config.getSemanticGroups().get(0).getChecks().get(0).getFieldCode();
+            }
+            return evaluateRow(Collections.singletonMap(fieldCode != null ? fieldCode : "text", ""), config);
+        }
+        return groupEvaluator().evaluate(sampleRow, config);
+    }
+
+    private SemanticGroupEvaluator groupEvaluator() {
+        return new SemanticGroupEvaluator(llmConfigLoader.load());
+    }
+
+    private SemanticFieldCheckEvaluator fieldEvaluator() {
+        return new SemanticFieldCheckEvaluator(llmConfigLoader.load());
     }
 }
