@@ -48,9 +48,13 @@ public class CopilotService {
                     + "6. create_dimension_value: dimensionId,code,name,parentCode?,sort?\n"
                     + "7. create_metric: code,name,type(TABLE|SQL|COMPOSITE),datasourceId,tableCode,fieldCode,aggregation(SUM|COUNT|AVG|...),dimensions?[{dimensionCode,fieldCode}]\n"
                     + "8. create_warning_rule: code,name,ruleType(METRIC|SEMANTIC|COMPOSITE),metricCodes[],expression,warningLevel?,enabled?\n"
-                    + "9. execute_sql: datasourceId,sql,pageIndex?(默认1),pageSize?(默认20) — 只读 SELECT 查询\n"
-                    + "10. execute_write_sql: datasourceId,sql — INSERT/UPDATE/DELETE/CREATE TABLE/ALTER TABLE/DROP TABLE\n"
-                    + "11. create_physical_table: datasourceId,tableName,schema?,ifNotExists?,columns[{name,type,nullable?,primaryKey?}]\n"
+                    + "9. run_warning_rule: ruleId?|ruleCode?,pageIndex?(默认1),pageSize?(默认20),keywordOnly?(默认true) — 异步执行预警预览，立即返回任务\n"
+                    + "10. get_warning_job_result: jobId — 获取预警任务当前页的命中行（从 recentWarningJobs 或上轮 run_warning_rule 返回的 jobId 取值）\n"
+                    + "11. execute_sql: datasourceId,sql,pageIndex?(默认1),pageSize?(默认20) — 只读 SELECT 查询\n"
+                    + "12. execute_write_sql: datasourceId,sql — INSERT/UPDATE/DELETE/CREATE TABLE/ALTER TABLE/DROP TABLE\n"
+                    + "13. create_physical_table: datasourceId,tableName,schema?,ifNotExists?,columns[{name,type,nullable?,primaryKey?}]\n"
+                    + "当用户要执行/预览/跑一下某条预警规则时，使用 run_warning_rule（从 warningRules 取 id 或 code），不要同步等待结果。\n"
+                    + "当用户要查看命中数据、展示命中的行、上面预警结果的具体数据时，使用 get_warning_job_result（jobId 从 recentWarningJobs 或对话中最近任务获取），不要编造数据。\n"
                     + "规则：引用已有对象时使用工作区中的 id/code；ID 用小写英文与数字；先解释计划再给出 actions；"
                     + "涉及数据写入或建表前提醒用户确认；仅规划模式下仍须写出完整 sql 或 columns；"
                     + "用户只说需求时推断合理默认值；不要编造不存在的 datasourceId。";
@@ -164,6 +168,11 @@ public class CopilotService {
                 return "计划创建指标 " + textParam(params, "code", "") + "（仅规划，未执行）";
             case "create_warning_rule":
                 return "计划创建预警规则 " + textParam(params, "code", "") + "（仅规划，未执行）";
+            case "run_warning_rule":
+                String ruleLabel = textParam(params, "ruleCode", textParam(params, "ruleId", ""));
+                return "计划异步执行预警规则 " + ruleLabel + "（仅规划，未执行）";
+            case "get_warning_job_result":
+                return "计划获取预警任务 " + textParam(params, "jobId", "") + " 的命中数据（仅规划，未执行）";
             default:
                 return "计划执行 " + tool + "（仅规划，未执行）";
         }

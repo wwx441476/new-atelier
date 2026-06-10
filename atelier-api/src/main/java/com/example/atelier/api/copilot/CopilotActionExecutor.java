@@ -20,8 +20,13 @@ import com.example.atelier.domain.metric.AggregationType;
 import com.example.atelier.domain.metric.DimensionBinding;
 import com.example.atelier.domain.metric.MetricDefinition;
 import com.example.atelier.domain.metric.MetricType;
+import com.example.atelier.domain.copilot.CopilotWarningHitResult;
+import com.example.atelier.domain.copilot.CopilotWarningJobResult;
 import com.example.atelier.domain.warning.WarningRule;
+import com.example.atelier.domain.warning.WarningRuleJob;
+import com.example.atelier.domain.warning.WarningRuleJobSource;
 import com.example.atelier.domain.warning.WarningRuleType;
+import com.example.atelier.warning.spi.WarningRuleJobService;
 import com.example.atelier.infra.datasource.DataSourceConfig;
 import com.example.atelier.infra.datasource.DataSourceRegistry;
 import com.example.atelier.infra.datasource.DbType;
@@ -48,6 +53,7 @@ public class CopilotActionExecutor {
     private final DimensionService dimensionService;
     private final MetricDefinitionService metricDefinitionService;
     private final WarningRuleService warningRuleService;
+    private final WarningRuleJobService warningRuleJobService;
     private final DatabaseBrowserService databaseBrowserService;
 
     public CopilotActionExecutor(DataSourcePersistenceService dataSourceService,
@@ -56,6 +62,7 @@ public class CopilotActionExecutor {
                                  DimensionService dimensionService,
                                  MetricDefinitionService metricDefinitionService,
                                  WarningRuleService warningRuleService,
+                                 WarningRuleJobService warningRuleJobService,
                                  DatabaseBrowserService databaseBrowserService) {
         this.dataSourceService = dataSourceService;
         this.dataSourceRegistry = dataSourceRegistry;
@@ -63,6 +70,7 @@ public class CopilotActionExecutor {
         this.dimensionService = dimensionService;
         this.metricDefinitionService = metricDefinitionService;
         this.warningRuleService = warningRuleService;
+        this.warningRuleJobService = warningRuleJobService;
         this.databaseBrowserService = databaseBrowserService;
     }
 
@@ -89,6 +97,10 @@ public class CopilotActionExecutor {
                     return createMetric(params);
                 case "create_warning_rule":
                     return createWarningRule(params);
+                case "run_warning_rule":
+                    return runWarningRule(params);
+                case "get_warning_job_result":
+                    return getWarningJobResult(params);
                 case "execute_sql":
                     return executeSql(params);
                 case "execute_write_sql":
@@ -276,6 +288,51 @@ public class CopilotActionExecutor {
                 .build();
         return success("execute_sql",
                 "查询完成，共 " + queryResult.getTotal() + " 条，当前第 " + payload.getPageIndex() + " 页",
+                payload);
+    }
+
+    private CopilotActionResult getWarningJobResult(JsonNode params) {
+        String jobId = requiredText(params, "jobId");
+        CopilotWarningHitResult hits = warningRuleJobService.getJobHits(jobId)
+                .orElseThrow(() -> new AtelierException("任务不存在或暂无结果: " + jobId));
+        String message;
+        if (hits.getMatchedRows() == null || hits.getMatchedRows().isEmpty()) {
+            message = "任务「" + hits.getRuleName() + "」当前页无命中行";
+        } else {
+            message = "任务「" + hits.getRuleName() + "」命中 "
+                    + hits.getMatchedRows().size() + " 条，见下方数据";
+        }
+        return success("get_warning_job_result", message, hits);
+    }
+
+    private CopilotActionResult runWarningRule(JsonNode params) {
+        String ruleId = text(params, "ruleId");
+        String ruleCode = text(params, "ruleCode");
+        int pageIndex = params.path("pageIndex").asInt(1);
+        int pageSize = params.path("pageSize").asInt(20);
+        boolean keywordOnly = !params.has("keywordOnly") || params.path("keywordOnly").asBoolean(true);
+        WarningRuleJob job;
+        if (ruleId != null && !ruleId.isEmpty()) {
+            job = warningRuleJobService.submitPreview(
+                    ruleId, pageIndex, pageSize, null, null, keywordOnly, WarningRuleJobSource.COPILOT);
+        } else if (ruleCode != null && !ruleCode.isEmpty()) {
+            job = warningRuleJobService.submitPreviewByCode(
+                    ruleCode, pageIndex, pageSize, keywordOnly, WarningRuleJobSource.COPILOT);
+        } else {
+            throw new AtelierException("run_warning_rule 需要 ruleId 或 ruleCode");
+        }
+        CopilotWarningJobResult payload = CopilotWarningJobResult.builder()
+                .jobId(job.getId())
+                .status(job.getStatus() != null ? job.getStatus().name() : "PENDING")
+                .ruleId(job.getRuleId())
+                .ruleCode(job.getRuleCode())
+                .ruleName(job.getRuleName())
+                .pageIndex(pageIndex <= 0 ? 1 : pageIndex)
+                .pageSize(pageSize <= 0 ? 20 : pageSize)
+                .keywordOnly(keywordOnly)
+                .build();
+        return success("run_warning_rule",
+                "已提交预警任务「" + job.getRuleName() + "」，完成后将通知您",
                 payload);
     }
 

@@ -4,6 +4,9 @@ import type {
   SemanticRuleConfig,
   SemanticValidateResult,
   WarningRule,
+  CopilotWarningHitResult,
+  WarningRuleJob,
+  WarningRuleJobStatus,
   WarningRulePreviewRequest,
   WarningRulePreviewResult,
 } from './types';
@@ -42,5 +45,20 @@ export const warningApi = {
       filters: request.filters,
       filterGroups: request.filterGroups,
       keywordOnly: request.keywordOnly ?? true,
+    }),
+  submitPreviewJob: (id: string, request: WarningRulePreviewRequest = {}) =>
+    postData<WarningRuleJob>(`/warning/rules/${id}/preview/jobs`, {
+      pageIndex: request.pageIndex ?? 1,
+      pageSize: request.pageSize ?? 20,
+      filters: request.filters,
+      filterGroups: request.filterGroups,
+      keywordOnly: request.keywordOnly ?? true,
+    }),
+  getJob: (jobId: string) => getData<WarningRuleJob>(`/warning/jobs/${jobId}`),
+  getJobHits: (jobId: string) => getData<CopilotWarningHitResult>(`/warning/jobs/${jobId}/hits`),
+  listJobs: (status?: WarningRuleJobStatus[], limit = 20) =>
+    getData<WarningRuleJob[]>('/warning/jobs', {
+      status: status?.join(','),
+      limit,
     }),
 };

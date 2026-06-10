@@ -366,6 +366,73 @@ export interface WarningRulePreviewResult {
   headers?: Record<string, string>;
 }
 
+export type WarningRuleJobStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
+
+export interface WarningRuleJobParams {
+  pageIndex?: number;
+  pageSize?: number;
+  keywordOnly?: boolean;
+}
+
+export interface WarningRuleJob {
+  id: string;
+  ruleId: string;
+  ruleCode?: string;
+  ruleName?: string;
+  status: WarningRuleJobStatus;
+  source?: 'PAGE' | 'COPILOT' | 'SCHEDULE';
+  progress?: number;
+  errorMessage?: string;
+  /** 全表总行数 */
+  total?: number;
+  /** 当前页命中行数 */
+  matchedCount?: number;
+  params?: WarningRuleJobParams;
+  result?: WarningRulePreviewResult;
+  createdAt?: string;
+  finishedAt?: string;
+}
+
+export interface WarningRuleJobEventPayload {
+  event: string;
+  jobId: string;
+  ruleId?: string;
+  ruleCode?: string;
+  ruleName?: string;
+  status?: WarningRuleJobStatus;
+  progress?: number;
+  total?: number;
+  matchedCount?: number;
+  pageIndex?: number;
+  pageSize?: number;
+  errorMessage?: string;
+}
+
+export interface CopilotWarningJobResult {
+  jobId: string;
+  status: string;
+  ruleId?: string;
+  ruleCode?: string;
+  ruleName?: string;
+  pageIndex: number;
+  pageSize: number;
+  keywordOnly: boolean;
+}
+
+export interface CopilotWarningHitResult {
+  jobId: string;
+  ruleId?: string;
+  ruleCode?: string;
+  ruleName?: string;
+  expression?: string;
+  total: number;
+  pageMatchedCount: number;
+  pageIndex: number;
+  pageSize: number;
+  matchedRows: Record<string, unknown>[];
+  headers?: Record<string, string>;
+}
+
 export interface CopilotChatMessage {
   role: 'user' | 'assistant';
   content: string;

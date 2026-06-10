@@ -5,6 +5,7 @@ import OnboardingGuide, { OnboardingHeaderActions } from '../components/Onboardi
 import ConfigBundleActions from '../components/ConfigBundleActions';
 import CopilotDrawer from '../components/copilot/CopilotDrawer';
 import { CopilotProvider } from '../components/copilot/CopilotContext';
+import { WarningJobProvider } from '../warning/WarningJobContext';
 import CopilotHeaderButton from '../components/copilot/CopilotHeaderButton';
 import { useCopilot } from '../components/copilot/CopilotContext';
 import '../components/copilot/CopilotDrawer.css';
@@ -140,7 +141,9 @@ function AdminLayoutInner() {
 export default function AdminLayout() {
   return (
     <CopilotProvider>
-      <AdminLayoutInner />
+      <WarningJobProvider>
+        <AdminLayoutInner />
+      </WarningJobProvider>
     </CopilotProvider>
   );
 }

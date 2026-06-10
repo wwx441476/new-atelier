@@ -6,6 +6,9 @@ import com.example.atelier.domain.metadata.MetaTable;
 import com.example.atelier.domain.metadata.MetaTableField;
 import com.example.atelier.domain.metric.MetricDefinition;
 import com.example.atelier.domain.warning.WarningRule;
+import com.example.atelier.domain.warning.WarningRuleJob;
+import com.example.atelier.domain.warning.WarningRuleJobStatus;
+import com.example.atelier.warning.spi.WarningRuleJobService;
 import com.example.atelier.infra.datasource.DataSourceConfig;
 import com.example.atelier.infra.persistence.service.DataSourcePersistenceService;
 import com.example.atelier.infra.persistence.service.MetricDefinitionService;
@@ -16,6 +19,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Component
@@ -28,17 +32,20 @@ public class CopilotWorkspaceContextBuilder {
     private final DimensionService dimensionService;
     private final MetricDefinitionService metricDefinitionService;
     private final WarningRuleService warningRuleService;
+    private final WarningRuleJobService warningRuleJobService;
 
     public CopilotWorkspaceContextBuilder(DataSourcePersistenceService dataSourceService,
                                           MetadataService metadataService,
                                           DimensionService dimensionService,
                                           MetricDefinitionService metricDefinitionService,
-                                          WarningRuleService warningRuleService) {
+                                          WarningRuleService warningRuleService,
+                                          WarningRuleJobService warningRuleJobService) {
         this.dataSourceService = dataSourceService;
         this.metadataService = metadataService;
         this.dimensionService = dimensionService;
         this.metricDefinitionService = metricDefinitionService;
         this.warningRuleService = warningRuleService;
+        this.warningRuleJobService = warningRuleJobService;
     }
 
     public String buildSummary() {
@@ -101,6 +108,22 @@ public class CopilotWorkspaceContextBuilder {
                 node.put("name", rule.getName());
                 node.put("ruleType", rule.getRuleType() != null ? rule.getRuleType().name() : "METRIC");
                 node.put("expression", rule.getExpression());
+            }
+            ArrayNode recentJobs = root.putArray("recentWarningJobs");
+            for (WarningRuleJob job : warningRuleJobService.listRecent(
+                    Arrays.asList(WarningRuleJobStatus.SUCCESS, WarningRuleJobStatus.FAILED), 10)) {
+                ObjectNode node = recentJobs.addObject();
+                node.put("jobId", job.getId());
+                node.put("ruleId", job.getRuleId());
+                node.put("ruleCode", job.getRuleCode());
+                node.put("ruleName", job.getRuleName());
+                node.put("status", job.getStatus() != null ? job.getStatus().name() : null);
+                node.put("total", job.getTotal() != null ? job.getTotal() : 0);
+                node.put("pageMatchedCount", job.getMatchedCount() != null ? job.getMatchedCount() : 0);
+                if (job.getParams() != null) {
+                    node.put("pageIndex", job.getParams().getPageIndex());
+                    node.put("pageSize", job.getParams().getPageSize());
+                }
             }
             return MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(root);
         } catch (Exception e) {

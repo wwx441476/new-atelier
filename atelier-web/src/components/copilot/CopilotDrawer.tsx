@@ -2,10 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CloseOutlined, RedoOutlined, SendOutlined } from '@ant-design/icons';
 import { useLocation } from 'react-router-dom';
 import { copilotApi } from '../../api/copilot';
-import type { CopilotActionResult, CopilotSqlQueryResult, SqlExecuteResult } from '../../api/types';
+import type {
+  CopilotActionResult,
+  CopilotSqlQueryResult,
+  CopilotWarningHitResult as CopilotWarningHitResultData,
+  CopilotWarningJobResult,
+  SqlExecuteResult,
+} from '../../api/types';
 import { ONBOARDING_STEPS } from '../../guide/steps';
 import CopilotMessageContent from './CopilotMessageContent';
 import CopilotQueryResult from './CopilotQueryResult';
+import CopilotWarningHitResultCard from './CopilotWarningHitResult';
+import CopilotWarningJobCard from './CopilotWarningJobCard';
 import CopilotWriteResult from './CopilotWriteResult';
 import { useCopilot } from './CopilotContext';
 import './CopilotDrawer.css';
@@ -16,6 +24,7 @@ const SUGGESTIONS = [
   '创建一个部门 LIST 维度，并添加两个维度值',
   '基于 orders 表创建按部门汇总的营收指标',
   '创建利润低于 500 的预警规则',
+  '跑一下 low_profit 预警，看看命中哪些数据',
 ];
 
 interface DisplayMessage {
@@ -55,6 +64,22 @@ function isSqlExecuteResult(result: unknown): result is SqlExecuteResult {
 
 function isWriteAction(tool: string) {
   return tool === 'execute_write_sql' || tool === 'create_physical_table';
+}
+
+function isWarningJobResult(result: unknown): result is CopilotWarningJobResult {
+  if (!result || typeof result !== 'object') {
+    return false;
+  }
+  const value = result as Record<string, unknown>;
+  return typeof value.jobId === 'string' && !Array.isArray(value.matchedRows);
+}
+
+function isWarningHitResult(result: unknown): result is CopilotWarningHitResultData {
+  if (!result || typeof result !== 'object') {
+    return false;
+  }
+  const value = result as Record<string, unknown>;
+  return typeof value.jobId === 'string' && Array.isArray(value.matchedRows);
 }
 
 function createId() {
@@ -235,6 +260,22 @@ export default function CopilotDrawer() {
                               (action.success || action.planned) &&
                               isSqlQueryResult(action.result) && (
                                 <CopilotQueryResult
+                                  data={action.result}
+                                  planned={action.planned}
+                                />
+                              )}
+                            {action.tool === 'run_warning_rule' &&
+                              (action.success || action.planned) &&
+                              isWarningJobResult(action.result) && (
+                                <CopilotWarningJobCard
+                                  data={action.result}
+                                  planned={action.planned}
+                                />
+                              )}
+                            {action.tool === 'get_warning_job_result' &&
+                              (action.success || action.planned) &&
+                              isWarningHitResult(action.result) && (
+                                <CopilotWarningHitResultCard
                                   data={action.result}
                                   planned={action.planned}
                                 />

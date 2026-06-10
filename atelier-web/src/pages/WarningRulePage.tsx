@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Form,
@@ -45,6 +45,7 @@ import {
   type FilterQuery,
 } from '../utils/queryFilters';
 import { createDefaultSemanticGroup, normalizeSemanticConfig } from '../utils/semanticRuleForm';
+import { subscribeWarningJob } from '../utils/warningJobEvents';
 
 export default function WarningRulePage() {
   const [loading, setLoading] = useState(false);
@@ -81,6 +82,7 @@ export default function WarningRulePage() {
   const selectedMetricCodes = Form.useWatch('metricCodes', form) as string[] | undefined;
   const selectedRuleType = (Form.useWatch('ruleType', form) as WarningRuleType | undefined) || 'METRIC';
   const [llmSettingsOpen, setLlmSettingsOpen] = useState(false);
+  const previewEventSourceRef = useRef<EventSource | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -235,24 +237,48 @@ export default function WarningRulePage() {
       if (!rule.id) {
         return;
       }
+      previewEventSourceRef.current?.close();
       setPreviewLoading(true);
+      setPreviewResult(null);
       try {
-        const result = await warningApi.previewRule(rule.id, {
+        const job = await warningApi.submitPreviewJob(rule.id, {
           pageIndex,
           pageSize,
           filters: filterQuery.filters,
           filterGroups: filterQuery.filterGroups,
           keywordOnly,
         });
-        setPreviewResult(result);
         setPreviewPage({ pageIndex, pageSize });
+        if (job.status === 'SUCCESS' && job.result) {
+          setPreviewResult(job.result);
+          setPreviewLoading(false);
+          return;
+        }
+        message.info('预警预览已在后台执行，完成后将通知您');
+        previewEventSourceRef.current = subscribeWarningJob(job.id, {
+          onCompleted: async () => {
+            const fullJob = await warningApi.getJob(job.id);
+            setPreviewResult(fullJob.result ?? null);
+            setPreviewLoading(false);
+          },
+          onFailed: (payload) => {
+            message.error(payload.errorMessage || '预览失败');
+            setPreviewLoading(false);
+          },
+        });
       } catch {
         setPreviewResult(null);
-      } finally {
         setPreviewLoading(false);
       }
     },
     [previewKeywordOnly],
+  );
+
+  useEffect(
+    () => () => {
+      previewEventSourceRef.current?.close();
+    },
+    [],
   );
 
   const previewCommonDimensions = useMemo(
@@ -503,8 +529,14 @@ export default function WarningRulePage() {
         width={900}
       >
         <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-          表达式: {previewResult?.expression || previewRule?.expression} · 本页触发{' '}
-          {previewResult?.matchedCount ?? 0} 条
+          表达式: {previewResult?.expression || previewRule?.expression}
+          {previewResult != null && (
+            <span>
+              {' '}
+              · 全表共 {previewResult.total} 条 · 第 {previewPage.pageIndex} 页本页触发{' '}
+              {previewResult.matchedCount ?? 0} 条
+            </span>
+          )}
           {previewDimensionKeys.length > 0 && <span> · 已展示公共维度列</span>}
           {hasActiveFilterQuery(previewActiveFilterQuery) && <span> · 已应用维度筛选</span>}
         </Typography.Paragraph>
@@ -565,7 +597,7 @@ export default function WarningRulePage() {
           dataSource={previewResult?.rows || []}
           scroll={{ x: true }}
           rowClassName={(record) => (record._triggered ? 'warning-row-triggered' : '')}
-          locale={{ emptyText: previewLoading ? '加载中...' : '暂无数据' }}
+          locale={{ emptyText: previewLoading ? '后台执行中，完成后自动展示...' : '暂无数据' }}
           pagination={{
             current: previewPage.pageIndex,
             pageSize: previewPage.pageSize,

@@ -34,3 +34,16 @@ body {
 .guide-menu-pending.ant-menu-item:not(.ant-menu-item-selected) {
   background: rgba(22, 119, 255, 0.12) !important;
 }
+
+/* 预警命中行高亮 */
+.ant-table-wrapper tr.warning-row-triggered > td {
+  background-color: #fff1f0 !important;
+}
+
+.ant-table-wrapper tr.warning-row-triggered:hover > td {
+  background-color: #ffe7e3 !important;
+}
+
+.ant-table-wrapper tr.warning-row-triggered > td:first-child {
+  box-shadow: inset 3px 0 0 #ff4d4f;
+}
