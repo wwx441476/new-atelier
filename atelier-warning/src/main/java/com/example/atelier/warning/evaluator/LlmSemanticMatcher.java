@@ -20,8 +20,11 @@ public class LlmSemanticMatcher implements SemanticMatcher {
             "你是文本合规检测助手。仅返回 JSON，格式为 {\"triggered\":boolean,\"reason\":\"...\"}。"
                     + "triggered=true 表示文本违反策略。";
 
+    private static final String CACHE_MODE = "VIOLATION";
+
     private final LlmChatClient chatClient = new LlmChatClient();
     private final SemanticLlmConfig llmConfig;
+    private final SemanticLlmResultCache cache = SemanticLlmResultCache.getInstance();
 
     public LlmSemanticMatcher(SemanticLlmConfig llmConfig) {
         this.llmConfig = llmConfig;
@@ -36,12 +39,18 @@ public class LlmSemanticMatcher implements SemanticMatcher {
         if (policy.isEmpty()) {
             throw new AtelierException("语义策略不能为空");
         }
+        java.util.Optional<SemanticMatchResult> cached = cache.get(CACHE_MODE, policy, text);
+        if (cached.isPresent()) {
+            return cached.get();
+        }
         String userPrompt = "合规策略：" + policy + "\n待检测文本：" + text
                 + "\n请判断文本是否违反策略。";
         log.debug("LLM 语义判定请求: policy=\"{}\", text=\"{}\"",
                 SemanticLogSupport.previewText(policy), SemanticLogSupport.previewText(text));
         String content = chatClient.chat(llmConfig, SYSTEM_PROMPT, userPrompt);
-        return parseResult(content);
+        SemanticMatchResult result = parseResult(content);
+        cache.put(CACHE_MODE, policy, text, result);
+        return result;
     }
 
     private SemanticMatchResult parseResult(String content) {

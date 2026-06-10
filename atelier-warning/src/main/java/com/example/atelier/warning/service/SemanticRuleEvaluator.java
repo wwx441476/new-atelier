@@ -4,6 +4,7 @@ import com.example.atelier.domain.warning.SemanticFieldCheck;
 import com.example.atelier.domain.warning.SemanticGroupMatchResult;
 import com.example.atelier.domain.warning.SemanticMatchResult;
 import com.example.atelier.domain.warning.SemanticRuleConfig;
+import com.example.atelier.warning.evaluator.SemanticEvaluationOptions;
 import com.example.atelier.warning.evaluator.SemanticFieldCheckEvaluator;
 import com.example.atelier.warning.evaluator.SemanticGroupEvaluator;
 import com.example.atelier.warning.evaluator.SemanticRuleConfigSupport;
@@ -23,7 +24,12 @@ public class SemanticRuleEvaluator {
     }
 
     public SemanticGroupMatchResult evaluateRow(Map<String, Object> row, SemanticRuleConfig config) {
-        return groupEvaluator().evaluate(row, config);
+        return evaluateRow(row, config, SemanticEvaluationOptions.defaults());
+    }
+
+    public SemanticGroupMatchResult evaluateRow(Map<String, Object> row, SemanticRuleConfig config,
+                                                SemanticEvaluationOptions options) {
+        return new SemanticGroupEvaluator(llmConfigLoader.load(), options).evaluate(row, config);
     }
 
     /** 兼容单文本样例校验 */
@@ -47,11 +53,7 @@ public class SemanticRuleEvaluator {
             }
             return evaluateRow(Collections.singletonMap(fieldCode != null ? fieldCode : "text", ""), config);
         }
-        return groupEvaluator().evaluate(sampleRow, config);
-    }
-
-    private SemanticGroupEvaluator groupEvaluator() {
-        return new SemanticGroupEvaluator(llmConfigLoader.load());
+        return evaluateRow(sampleRow, config);
     }
 
     private SemanticFieldCheckEvaluator fieldEvaluator() {

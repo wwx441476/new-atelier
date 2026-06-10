@@ -312,6 +312,8 @@ export interface WarningRulePreviewRequest {
   pageSize?: number;
   filters?: FilterConditionDto[];
   filterGroups?: FilterGroupDto[];
+  /** 为 true 时仅用词库预览，不调用 LLM（默认 true） */
+  keywordOnly?: boolean;
 }
 
 export interface WarningRulePreviewResult {

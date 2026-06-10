@@ -58,8 +58,9 @@ public class WarningRuleController {
     public ApiResponse<WarningRulePreviewResult> preview(
             @PathVariable String id,
             @RequestParam(value = "pageIndex", defaultValue = "1") int pageIndex,
-            @RequestParam(value = "pageSize", defaultValue = "20") int pageSize) {
-        return ApiResponse.ok(warningRuleService.previewRule(id, pageIndex, pageSize, null, null));
+            @RequestParam(value = "pageSize", defaultValue = "20") int pageSize,
+            @RequestParam(value = "keywordOnly", defaultValue = "true") boolean keywordOnly) {
+        return ApiResponse.ok(warningRuleService.previewRule(id, pageIndex, pageSize, null, null, keywordOnly));
     }
 
     @PostMapping("/{id}/preview")
@@ -72,7 +73,8 @@ public class WarningRuleController {
                 body.getPageIndex(),
                 body.getPageSize(),
                 toFilterConditions(body.getFilters()),
-                toFilterGroups(body.getFilterGroups())));
+                toFilterGroups(body.getFilterGroups()),
+                body.isKeywordOnly()));
     }
 
     @PostMapping

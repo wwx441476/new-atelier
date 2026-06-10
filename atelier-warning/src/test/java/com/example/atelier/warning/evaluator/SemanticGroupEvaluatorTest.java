@@ -81,6 +81,38 @@ public class SemanticGroupEvaluatorTest {
     }
 
     @Test
+    public void shouldShortCircuitWhenEarlierCheckFailsInAndGroup() {
+        SemanticRuleConfig config = SemanticRuleConfig.builder()
+                .semanticGroups(Collections.singletonList(SemanticCheckGroup.builder()
+                        .checks(Arrays.asList(
+                                SemanticFieldCheck.builder()
+                                        .fieldCode("remark")
+                                        .checkMode(SemanticCheckMode.VIOLATION)
+                                        .policy("不得含烟酒")
+                                        .hintKeywords(Arrays.asList("茅台"))
+                                        .matchMode("KEYWORD")
+                                        .build(),
+                                SemanticFieldCheck.builder()
+                                        .fieldCode("project_name")
+                                        .checkMode(SemanticCheckMode.REQUIREMENT)
+                                        .policy("学杂费类项目")
+                                        .hintKeywords(Arrays.asList("学杂费"))
+                                        .matchMode("KEYWORD")
+                                        .build()))
+                        .build()))
+                .build();
+
+        Map<String, Object> row = new HashMap<>();
+        row.put("remark", "正常办公用品");
+        row.put("project_name", "2024春季学杂费");
+
+        SemanticGroupMatchResult result = new SemanticGroupEvaluator(disabledLlm()).evaluate(row, config);
+        Assert.assertFalse(result.isTriggered());
+        Assert.assertEquals(false, result.getCheckTriggered().get("remark"));
+        Assert.assertFalse(result.getCheckTriggered().containsKey("project_name"));
+    }
+
+    @Test
     public void shouldMigrateLegacySingleFieldConfig() {
         SemanticRuleConfig legacy = SemanticRuleConfig.builder()
                 .fieldCode("remark")

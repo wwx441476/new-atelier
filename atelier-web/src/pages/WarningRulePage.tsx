@@ -71,6 +71,7 @@ export default function WarningRulePage() {
   const [dimensions, setDimensions] = useState<Dimension[]>([]);
   const [previewFilterForm] = Form.useForm<{ filterGroups: FilterGroupForm[] }>();
   const [previewActiveFilterQuery, setPreviewActiveFilterQuery] = useState<FilterQuery>({});
+  const [previewKeywordOnly, setPreviewKeywordOnly] = useState(true);
   const [dimensionValueOptions, setDimensionValueOptions] = useState<
     Record<string, { label: string; value: string }[]>
   >({});
@@ -229,6 +230,7 @@ export default function WarningRulePage() {
       pageIndex: number,
       pageSize: number,
       filterQuery: FilterQuery = {},
+      keywordOnly: boolean = previewKeywordOnly,
     ) => {
       if (!rule.id) {
         return;
@@ -240,6 +242,7 @@ export default function WarningRulePage() {
           pageSize,
           filters: filterQuery.filters,
           filterGroups: filterQuery.filterGroups,
+          keywordOnly,
         });
         setPreviewResult(result);
         setPreviewPage({ pageIndex, pageSize });
@@ -249,7 +252,7 @@ export default function WarningRulePage() {
         setPreviewLoading(false);
       }
     },
-    [],
+    [previewKeywordOnly],
   );
 
   const previewCommonDimensions = useMemo(
@@ -278,9 +281,10 @@ export default function WarningRulePage() {
     previewFilterForm.setFieldsValue({
       filterGroups: [createDefaultFilterGroup(commonDims[0]?.fieldCode || '')],
     });
+    setPreviewKeywordOnly(true);
     setPreviewModalOpen(true);
     await loadDimensionValueOptions(record.metricCodes || []);
-    loadPreview(record, 1, 20, {});
+    loadPreview(record, 1, 20, {}, true);
   };
 
   const applyPreviewFilters = () => {
@@ -504,6 +508,27 @@ export default function WarningRulePage() {
           {previewDimensionKeys.length > 0 && <span> · 已展示公共维度列</span>}
           {hasActiveFilterQuery(previewActiveFilterQuery) && <span> · 已应用维度筛选</span>}
         </Typography.Paragraph>
+        {(previewRule?.ruleType === 'SEMANTIC' || previewRule?.ruleType === 'COMPOSITE') && (
+          <div style={{ marginBottom: 12 }}>
+            <Switch
+              checked={previewKeywordOnly}
+              checkedChildren="仅词库"
+              unCheckedChildren="含 LLM"
+              onChange={(checked) => {
+                setPreviewKeywordOnly(checked);
+                if (previewRule) {
+                  loadPreview(previewRule, previewPage.pageIndex, previewPage.pageSize,
+                    previewActiveFilterQuery, checked);
+                }
+              }}
+            />
+            <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+              {previewKeywordOnly
+                ? '快速预览：不调用大模型。关闭后可深度检测（较慢）。'
+                : '已启用 LLM 深度检测，多行预览可能较慢。'}
+            </Typography.Text>
+          </div>
+        )}
         {previewCommonDimensions.length > 0 && (
           <div style={{ marginBottom: 16 }}>
             <Typography.Text strong>维度筛选（可选）</Typography.Text>

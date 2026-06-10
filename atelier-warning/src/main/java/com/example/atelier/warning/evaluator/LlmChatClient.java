@@ -27,16 +27,20 @@ public class LlmChatClient {
 
     private static final Logger log = LoggerFactory.getLogger(LlmChatClient.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    /** 语义判定仅需简短 JSON，降低生成 token 以缩短耗时 */
+    static final int SEMANTIC_MAX_TOKENS = 128;
 
     public String chat(SemanticLlmConfig config, String systemPrompt, String userPrompt) {
         if (config == null || config.getApiKey() == null || config.getApiKey().trim().isEmpty()) {
             throw new AtelierException("LLM API Key 未配置");
         }
-        SemanticLlmProviders.applyProviderDefaults(config);
-        if (KimiEndpointSupport.useAnthropicProtocol(config.getBaseUrl(), config.getProvider())) {
-            return chatAnthropic(config, systemPrompt, userPrompt);
-        }
-        return chatOpenAi(config, systemPrompt, userPrompt);
+        return LlmConcurrencyLimiter.withPermit(() -> {
+            SemanticLlmProviders.applyProviderDefaults(config);
+            if (KimiEndpointSupport.useAnthropicProtocol(config.getBaseUrl(), config.getProvider())) {
+                return chatAnthropic(config, systemPrompt, userPrompt);
+            }
+            return chatOpenAi(config, systemPrompt, userPrompt);
+        });
     }
 
     private String chatAnthropic(SemanticLlmConfig config, String systemPrompt, String userPrompt) {
@@ -50,7 +54,7 @@ public class LlmChatClient {
         try {
             ObjectNode body = MAPPER.createObjectNode();
             body.put("model", model);
-            body.put("max_tokens", 1024);
+            body.put("max_tokens", SEMANTIC_MAX_TOKENS);
             if (systemPrompt != null && !systemPrompt.isEmpty()) {
                 body.put("system", systemPrompt);
             }
@@ -102,6 +106,7 @@ public class LlmChatClient {
         try {
             ObjectNode body = MAPPER.createObjectNode();
             body.put("model", model);
+            body.put("max_tokens", SEMANTIC_MAX_TOKENS);
             ArrayNode messages = body.putArray("messages");
             if (systemPrompt != null && !systemPrompt.isEmpty()) {
                 ObjectNode system = messages.addObject();

@@ -41,5 +41,6 @@ export const warningApi = {
       pageSize: request.pageSize ?? 20,
       filters: request.filters,
       filterGroups: request.filterGroups,
+      keywordOnly: request.keywordOnly ?? true,
     }),
 };

@@ -186,9 +186,20 @@ public class WarningRuleServiceImpl implements WarningRuleService {
     public WarningRulePreviewResult previewRule(String id, int pageIndex, int pageSize,
                                                 List<FilterCondition> filters,
                                                 List<FilterGroup> filterGroups) {
+        return previewRule(id, pageIndex, pageSize, filters, filterGroups, false);
+    }
+
+    @Override
+    public WarningRulePreviewResult previewRule(String id, int pageIndex, int pageSize,
+                                                List<FilterCondition> filters,
+                                                List<FilterGroup> filterGroups,
+                                                boolean keywordOnly) {
         WarningRule rule = getRule(id)
                 .orElseThrow(() -> new AtelierException("预警规则不存在: " + id));
-        return previewService.preview(rule, pageIndex, pageSize, filters, filterGroups);
+        com.example.atelier.warning.evaluator.SemanticEvaluationOptions options = keywordOnly
+                ? com.example.atelier.warning.evaluator.SemanticEvaluationOptions.keywordOnly()
+                : com.example.atelier.warning.evaluator.SemanticEvaluationOptions.defaults();
+        return previewService.preview(rule, pageIndex, pageSize, filters, filterGroups, options);
     }
 
     private void validateAndNormalizeRule(WarningRule rule, WarningRuleType ruleType) {

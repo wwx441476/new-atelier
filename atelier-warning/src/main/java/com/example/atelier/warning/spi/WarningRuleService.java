@@ -38,4 +38,8 @@ public interface WarningRuleService {
 
     WarningRulePreviewResult previewRule(String id, int pageIndex, int pageSize,
                                        List<FilterCondition> filters, List<FilterGroup> filterGroups);
+
+    WarningRulePreviewResult previewRule(String id, int pageIndex, int pageSize,
+                                       List<FilterCondition> filters, List<FilterGroup> filterGroups,
+                                       boolean keywordOnly);
 }

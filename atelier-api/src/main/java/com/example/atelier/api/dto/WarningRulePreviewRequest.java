@@ -17,4 +17,7 @@ public class WarningRulePreviewRequest {
     private List<MetricQueryApiRequest.FilterDto> filters;
 
     private List<MetricQueryApiRequest.FilterGroupDto> filterGroups;
+
+    /** true 时预览仅用词库，不调用 LLM（更快） */
+    private boolean keywordOnly = true;
 }
