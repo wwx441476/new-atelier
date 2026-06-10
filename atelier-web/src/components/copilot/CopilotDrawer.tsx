@@ -80,6 +80,7 @@ export default function CopilotDrawer() {
     },
   ]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const imeComposingRef = useRef(false);
   const pageLabel = useMemo(() => resolvePageLabel(location.pathname), [location.pathname]);
 
   const canSend = input.trim().length > 0 && !loading;
@@ -310,11 +311,26 @@ export default function CopilotDrawer() {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder="描述你想创建的配置，Shift+Enter 换行"
+              onCompositionStart={() => {
+                imeComposingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                imeComposingRef.current = false;
+              }}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  sendMessage(input);
+                if (event.key !== 'Enter' || event.shiftKey) {
+                  return;
                 }
+                // 输入法组字期间忽略 Enter，避免误触发送（与 Cursor 一致）
+                if (
+                  imeComposingRef.current ||
+                  event.nativeEvent.isComposing ||
+                  event.keyCode === 229
+                ) {
+                  return;
+                }
+                event.preventDefault();
+                sendMessage(input);
               }}
             />
             <button
