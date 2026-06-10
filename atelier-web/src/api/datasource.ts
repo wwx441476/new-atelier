@@ -2,11 +2,14 @@ import { deleteData, getData, postData } from './client';
 import type {
   DataSourceRequest,
   DataSourceResponse,
+  DbBrowseExecuteRequest,
   DbBrowseQueryRequest,
+  DbCreateTableRequest,
   DbColumnInfo,
   DbSchemaInfo,
   DbTableInfo,
   QueryResult,
+  SqlExecuteResult,
   TestConnectionResult,
 } from './types';
 
@@ -30,6 +33,10 @@ export const datasourceApi = {
     }),
   browseExecuteSql: (id: string, data: DbBrowseQueryRequest) =>
     postData<QueryResult>(`/datasources/${id}/browse/query`, data),
+  browseExecuteWriteSql: (id: string, data: DbBrowseExecuteRequest) =>
+    postData<SqlExecuteResult>(`/datasources/${id}/browse/execute`, data),
+  browseCreateTable: (id: string, data: DbCreateTableRequest) =>
+    postData<SqlExecuteResult>(`/datasources/${id}/browse/tables/create`, data),
   browseTableQuery: (id: string, table: string, schema: string | undefined, data: DbBrowseQueryRequest) =>
     postData<QueryResult>(
       `/datasources/${id}/browse/tables/${table}/query${schema ? `?schema=${encodeURIComponent(schema)}` : ''}`,

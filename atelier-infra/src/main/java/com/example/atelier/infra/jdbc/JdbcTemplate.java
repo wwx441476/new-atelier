@@ -47,8 +47,15 @@ public class JdbcTemplate {
      * 执行 DDL / DML 更新语句。
      */
     public void execute(Connection connection, String sql) {
+        executeUpdate(connection, sql);
+    }
+
+    /**
+     * 执行 DDL / DML 更新语句，返回影响行数。
+     */
+    public int executeUpdate(Connection connection, String sql) {
         try {
-            queryRunner.update(connection, sql);
+            return queryRunner.update(connection, sql);
         } catch (SQLException e) {
             throw new AtelierException("SQL 执行失败: " + e.getMessage(), e);
         }

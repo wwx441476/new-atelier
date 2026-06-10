@@ -3,6 +3,8 @@ package com.example.atelier.metadata.spi;
 import com.example.atelier.domain.metadata.MetaTable;
 import com.example.atelier.domain.metadata.MetaTableDdlResult;
 import com.example.atelier.domain.metadata.MetaTableField;
+import com.example.atelier.domain.metadata.MetaTableImportRequest;
+import com.example.atelier.domain.metadata.MetaTableImportResult;
 import com.example.atelier.domain.query.QueryResult;
 
 import java.util.List;
@@ -31,6 +33,9 @@ public interface MetadataService {
 
     /** 从 JDBC 元数据发现表（简化桩） */
     List<MetaTable> discoverTables(String datasourceId);
+
+    /** 从物理库导入选定表及其字段为元数据 */
+    MetaTableImportResult importTablesFromDatabase(MetaTableImportRequest request);
 
     /** 分页预览元数据表对应的物理表数据 */
     QueryResult previewTableData(String tableId, int pageIndex, int pageSize);

@@ -1,14 +1,20 @@
 package com.example.atelier.metadata.service;
 
+import com.example.atelier.domain.datasource.DbColumnInfo;
+import com.example.atelier.domain.datasource.DbTableInfo;
 import com.example.atelier.domain.metadata.MetaTable;
 import com.example.atelier.domain.metadata.MetaTableDdlResult;
 import com.example.atelier.domain.metadata.MetaTableField;
+import com.example.atelier.domain.metadata.MetaTableImportRequest;
+import com.example.atelier.domain.metadata.MetaTableImportResult;
+import com.example.atelier.metadata.ddl.MetaFieldTypeNormalizer;
 import com.example.atelier.metadata.ddl.TableDdlBuilder;
 import com.example.atelier.domain.query.QueryResult;
 import com.example.atelier.infra.datasource.DataSourceConfig;
 import com.example.atelier.infra.datasource.DataSourceRegistry;
 import com.example.atelier.infra.datasource.DbType;
 import com.example.atelier.infra.exception.AtelierException;
+import com.example.atelier.infra.jdbc.DatabaseBrowserService;
 import com.example.atelier.infra.jdbc.JdbcTemplate;
 import com.example.atelier.infra.jdbc.PageSqlBuilder;
 import com.example.atelier.infra.jdbc.QueryResultMapper;
@@ -45,14 +51,17 @@ public class MetadataServiceImpl implements MetadataService {
     private final MetaTableJpaRepository tableRepository;
     private final MetaTableFieldJpaRepository fieldRepository;
     private final DataSourceRegistry dataSourceRegistry;
+    private final DatabaseBrowserService databaseBrowserService;
     private final JdbcTemplate jdbcTemplate;
 
     public MetadataServiceImpl(MetaTableJpaRepository tableRepository,
                                MetaTableFieldJpaRepository fieldRepository,
-                               DataSourceRegistry dataSourceRegistry) {
+                               DataSourceRegistry dataSourceRegistry,
+                               DatabaseBrowserService databaseBrowserService) {
         this.tableRepository = tableRepository;
         this.fieldRepository = fieldRepository;
         this.dataSourceRegistry = dataSourceRegistry;
+        this.databaseBrowserService = databaseBrowserService;
         this.jdbcTemplate = new JdbcTemplate();
     }
 
@@ -193,6 +202,144 @@ public class MetadataServiceImpl implements MetadataService {
             throw new AtelierException("JDBC 表发现失败: " + e.getMessage(), e);
         }
         return discovered;
+    }
+
+    @Override
+    @Transactional
+    public MetaTableImportResult importTablesFromDatabase(MetaTableImportRequest request) {
+        if (request == null || request.getDatasourceId() == null || request.getDatasourceId().trim().isEmpty()) {
+            throw new AtelierException("数据源不能为空");
+        }
+        if (request.getTableNames() == null || request.getTableNames().isEmpty()) {
+            throw new AtelierException("请至少选择一张表");
+        }
+        String datasourceId = request.getDatasourceId().trim();
+        String schemaCode = normalizeSchemaCode(request.getSchemaCode());
+        String catalogCode = request.getCatalogCode();
+
+        List<DbTableInfo> physicalTables = databaseBrowserService.listTables(datasourceId, schemaCode);
+        Map<String, DbTableInfo> physicalByName = new LinkedHashMap<>();
+        for (DbTableInfo table : physicalTables) {
+            physicalByName.put(table.getName().toLowerCase(Locale.ROOT), table);
+        }
+
+        List<MetaTable> imported = new ArrayList<>();
+        List<String> skipped = new ArrayList<>();
+        for (String rawName : request.getTableNames()) {
+            if (rawName == null || rawName.trim().isEmpty()) {
+                continue;
+            }
+            String physicalName = rawName.trim();
+            String tableCode = normalizeTableCode(physicalName);
+            validateTableCode(tableCode);
+
+            if (findExistingTable(datasourceId, schemaCode, tableCode).isPresent()) {
+                skipped.add(physicalName);
+                continue;
+            }
+
+            DbTableInfo physical = physicalByName.get(physicalName.toLowerCase(Locale.ROOT));
+            if (physical == null) {
+                throw new AtelierException("物理表不存在: " + qualifyTableName(schemaCode, physicalName));
+            }
+
+            String resolvedSchema = physical.getSchema() != null ? physical.getSchema() : schemaCode;
+            MetaTableEntity entity = MetaTableEntity.builder()
+                    .pkMetaTable(UUID.randomUUID().toString())
+                    .catalogCode(catalogCode)
+                    .tableCode(tableCode)
+                    .tableName(physical.getRemarks() != null && !physical.getRemarks().trim().isEmpty()
+                            ? physical.getRemarks().trim()
+                            : tableCode)
+                    .pkDatasource(datasourceId)
+                    .schemaCode(normalizeSchemaCode(resolvedSchema))
+                    .comments(physical.getRemarks())
+                    .createTime(LocalDateTime.now())
+                    .modifyTime(LocalDateTime.now())
+                    .build();
+            MetaTableEntity saved = tableRepository.save(entity);
+            importFieldsFromPhysicalTable(datasourceId, resolvedSchema, physical.getName(), saved.getPkMetaTable());
+            imported.add(toTableWithFields(saved));
+        }
+
+        return MetaTableImportResult.builder()
+                .imported(imported)
+                .skipped(skipped)
+                .importedCount(imported.size())
+                .skippedCount(skipped.size())
+                .build();
+    }
+
+    private void importFieldsFromPhysicalTable(String datasourceId, String schema, String tableName,
+                                               String metaTableId) {
+        List<DbColumnInfo> columns = databaseBrowserService.listColumns(datasourceId, schema, tableName);
+        int fallbackSort = 1;
+        for (DbColumnInfo column : columns) {
+            String fieldCode = normalizeFieldCode(column.getName());
+            if (fieldCode == null) {
+                continue;
+            }
+            int sortNo = column.getOrdinalPosition() != null && column.getOrdinalPosition() > 0
+                    ? column.getOrdinalPosition()
+                    : fallbackSort;
+            MetaTableFieldEntity fieldEntity = MetaTableFieldEntity.builder()
+                    .pkMetaField(UUID.randomUUID().toString())
+                    .pkMetaTable(metaTableId)
+                    .fieldCode(fieldCode)
+                    .fieldName(column.getRemarks() != null && !column.getRemarks().trim().isEmpty()
+                            ? column.getRemarks().trim()
+                            : fieldCode)
+                    .fieldType(MetaFieldTypeNormalizer.normalize(column.getTypeName()))
+                    .fieldLength(column.getColumnSize())
+                    .fieldPrecision(column.getDecimalDigits())
+                    .nullable(column.getNullable() != null && column.getNullable() ? 1 : 0)
+                    .sortNo(sortNo)
+                    .build();
+            fieldRepository.save(fieldEntity);
+            fallbackSort++;
+        }
+    }
+
+    private Optional<MetaTableEntity> findExistingTable(String datasourceId, String schemaCode, String tableCode) {
+        return tableRepository.findByPkDatasource(datasourceId).stream()
+                .filter(entity -> tableCode.equalsIgnoreCase(entity.getTableCode()))
+                .filter(entity -> schemaMatchesForDuplicate(entity.getSchemaCode(), schemaCode))
+                .findFirst();
+    }
+
+    /**
+     * 同一数据源下，表编码相同即视为同一张物理表。
+     * Schema 一方为空、另一方有值时仍视为重复（兼容历史数据未填 schema 的情况）。
+     */
+    private boolean schemaMatchesForDuplicate(String existing, String requested) {
+        String left = blankToNull(existing);
+        String right = blankToNull(requested);
+        if (left == null || right == null) {
+            return true;
+        }
+        return left.equalsIgnoreCase(right);
+    }
+
+    private String blankToNull(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private String normalizeTableCode(String tableName) {
+        return tableName.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeFieldCode(String columnName) {
+        if (columnName == null || columnName.trim().isEmpty()) {
+            return null;
+        }
+        String normalized = columnName.trim().toLowerCase(Locale.ROOT);
+        if (!SAFE_TABLE_CODE.matcher(normalized).matches()) {
+            return null;
+        }
+        return normalized;
     }
 
     @Override

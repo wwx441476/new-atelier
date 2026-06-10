@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   Empty,
   Form,
@@ -12,8 +13,11 @@ import {
   Table,
   Tabs,
   Typography,
+  message,
 } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import CreateTableModal from './CreateTableModal';
 import SqlPreviewBlock from './SqlPreviewBlock';
 import { datasourceApi } from '../api/datasource';
 import type {
@@ -24,6 +28,7 @@ import type {
   DbTableInfo,
   FilterGroupDto,
   QueryResult,
+  SqlExecuteResult,
 } from '../api/types';
 
 interface DatabaseBrowseModalProps {
@@ -129,6 +134,9 @@ export default function DatabaseBrowseModal({
   const [filterPage, setFilterPage] = useState({ pageIndex: 1, pageSize: 20 });
   const [sqlPage, setSqlPage] = useState({ pageIndex: 1, pageSize: 20 });
   const [customSql, setCustomSql] = useState('');
+  const [writeSql, setWriteSql] = useState('');
+  const [writeResult, setWriteResult] = useState<SqlExecuteResult | null>(null);
+  const [createTableOpen, setCreateTableOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('preview');
   const [filterForm] = Form.useForm();
 
@@ -145,9 +153,11 @@ export default function DatabaseBrowseModal({
     setFilterPage({ pageIndex: 1, pageSize: 20 });
     setSqlPage({ pageIndex: 1, pageSize: 20 });
     setCustomSql('');
+    setWriteSql('');
+    setWriteResult(null);
+    setCreateTableOpen(false);
     setActiveTab('preview');
-    filterForm.resetFields();
-  }, [filterForm]);
+  }, []);
 
   const loadTables = useCallback(async (datasourceId: string, schema?: string) => {
     setTablesLoading(true);
@@ -193,7 +203,15 @@ export default function DatabaseBrowseModal({
   const initTableContext = useCallback(
     async (datasourceId: string, table: DbTableInfo) => {
       const schema = table.schema || selectedSchema;
-      setCustomSql(`SELECT * FROM ${qualifyTable(schema, table.name)}`);
+      const qualified = qualifyTable(schema, table.name);
+      setCustomSql(`SELECT * FROM ${qualified}`);
+      setWriteSql(
+        `-- 支持 INSERT / UPDATE / DELETE / CREATE TABLE / ALTER TABLE / DROP TABLE\n` +
+          `-- INSERT INTO ${qualified} (col1, col2) VALUES ('v1', 100);\n` +
+          `-- UPDATE ${qualified} SET col1 = 'v2' WHERE id = '...';\n` +
+          `-- DELETE FROM ${qualified} WHERE id = '...';`,
+      );
+      setWriteResult(null);
       filterForm.setFieldsValue({
         filterGroups: [
           {
@@ -306,6 +324,41 @@ export default function DatabaseBrowseModal({
     } finally {
       setQueryLoading(false);
     }
+  };
+
+  const handleWriteSql = async () => {
+    if (!datasource || !writeSql.trim()) return;
+    setQueryLoading(true);
+    try {
+      const result = await datasourceApi.browseExecuteWriteSql(datasource.id, {
+        sql: writeSql.trim(),
+      });
+      setWriteResult(result);
+      message.success(result.message || '执行成功');
+      if (
+        result.statementType === 'INSERT' ||
+        result.statementType === 'UPDATE' ||
+        result.statementType === 'DELETE' ||
+        result.statementType === 'CREATE TABLE'
+      ) {
+        if (selectedSchema) {
+          await loadTables(datasource.id, selectedSchema);
+        }
+        if (selectedTable) {
+          await loadPreview(datasource.id, selectedTable, 1, previewPage.pageSize);
+        }
+      }
+    } catch (err) {
+      setWriteResult(null);
+      message.error(err instanceof Error ? err.message : '执行失败');
+    } finally {
+      setQueryLoading(false);
+    }
+  };
+
+  const handleCreateTableSuccess = async () => {
+    if (!datasource || !selectedSchema) return;
+    await loadTables(datasource.id, selectedSchema);
   };
 
   const fieldOptions = useMemo(
@@ -447,7 +500,7 @@ export default function DatabaseBrowseModal({
       />
       <Space style={{ marginBottom: 12 }}>
         <Button type="primary" loading={queryLoading} onClick={() => handleSqlQuery()}>
-          执行 SQL
+          执行查询
         </Button>
         <Typography.Text type="secondary">仅支持 SELECT 查询</Typography.Text>
       </Space>
@@ -460,6 +513,59 @@ export default function DatabaseBrowseModal({
     </div>
   );
 
+  const writeSqlUi = (
+    <div>
+      <Input.TextArea
+        rows={8}
+        value={writeSql}
+        onChange={(e) => setWriteSql(e.target.value)}
+        placeholder="INSERT INTO schema.table (...) VALUES (...);"
+        style={{ fontFamily: 'monospace', marginBottom: 12 }}
+      />
+      <Space style={{ marginBottom: 12 }}>
+        <Button type="primary" loading={queryLoading} onClick={handleWriteSql}>
+          执行写入
+        </Button>
+        <Typography.Text type="secondary">
+          支持 INSERT / UPDATE / DELETE / CREATE TABLE / ALTER TABLE / DROP TABLE
+        </Typography.Text>
+      </Space>
+      {writeResult && (
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={writeResult.message}
+          description={
+            <div>
+              <div>语句类型：{writeResult.statementType}</div>
+              {writeResult.affectedRows > 0 && <div>影响行数：{writeResult.affectedRows}</div>}
+              {writeResult.sql && (
+                <div style={{ marginTop: 8 }}>
+                  <SqlPreviewBlock sql={writeResult.sql} maxHeight={120} />
+                </div>
+              )}
+            </div>
+          }
+        />
+      )}
+    </div>
+  );
+
+  const schemaToolsUi = (
+    <div>
+      <Typography.Paragraph type="secondary">
+        可在当前 Schema 下新建物理表，或执行 DDL/DML 语句。建表后可在左侧表列表中刷新查看。
+      </Typography.Paragraph>
+      <Space style={{ marginBottom: 16 }}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateTableOpen(true)}>
+          新建物理表
+        </Button>
+      </Space>
+      {writeSqlUi}
+    </div>
+  );
+
   return (
     <Modal
       title={`数据库浏览 — ${datasource?.name || ''}`}
@@ -468,7 +574,7 @@ export default function DatabaseBrowseModal({
       footer={null}
       width={1180}
       styles={{ body: { paddingTop: 12, maxHeight: '80vh', overflow: 'auto' } }}
-      destroyOnClose
+      destroyOnHidden
     >
       <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
         数据源: {datasource?.id} · {datasource?.dbType} · {datasource?.jdbcUrl}
@@ -499,7 +605,29 @@ export default function DatabaseBrowseModal({
         </div>
 
         <div style={{ width: 240, border: '1px solid #f0f0f0', borderRadius: 6, overflow: 'auto', maxHeight: 560 }}>
-          <div style={{ padding: '8px 12px', fontWeight: 500, borderBottom: '1px solid #f0f0f0' }}>表 / 视图</div>
+          <div
+            style={{
+              padding: '8px 12px',
+              fontWeight: 500,
+              borderBottom: '1px solid #f0f0f0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+            }}
+          >
+            <span>表 / 视图</span>
+            <Button
+              type="link"
+              size="small"
+              icon={<PlusOutlined />}
+              disabled={!selectedSchema}
+              onClick={() => setCreateTableOpen(true)}
+              style={{ padding: 0, height: 'auto' }}
+            >
+              建表
+            </Button>
+          </div>
           <Spin spinning={tablesLoading}>
             <List
               size="small"
@@ -530,7 +658,16 @@ export default function DatabaseBrowseModal({
 
         <div style={{ flex: 1, minWidth: 0 }}>
           {!selectedTable ? (
-            <Empty description="请选择表以查看字段与数据" style={{ marginTop: 80 }} />
+            selectedSchema ? (
+              <Tabs
+                items={[
+                  { key: 'schema-tools', label: '建表 / 写入', children: schemaToolsUi },
+                  { key: 'sql', label: 'SQL 查询', children: sqlQueryUi },
+                ]}
+              />
+            ) : (
+              <Empty description="请选择 Schema" style={{ marginTop: 80 }} />
+            )
           ) : (
             <div>
               <Typography.Text strong>
@@ -582,12 +719,26 @@ export default function DatabaseBrowseModal({
                     label: 'SQL 查询',
                     children: sqlQueryUi,
                   },
+                  {
+                    key: 'write',
+                    label: '数据维护',
+                    children: writeSqlUi,
+                  },
                 ]}
               />
             </div>
           )}
         </div>
       </div>
+      {datasource && (
+        <CreateTableModal
+          datasourceId={datasource.id}
+          schema={selectedSchema}
+          open={createTableOpen}
+          onClose={() => setCreateTableOpen(false)}
+          onSuccess={handleCreateTableSuccess}
+        />
+      )}
     </Modal>
   );
 }

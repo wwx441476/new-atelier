@@ -29,21 +29,28 @@ public class LlmChatClient {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     /** 语义判定仅需简短 JSON，降低生成 token 以缩短耗时 */
     static final int SEMANTIC_MAX_TOKENS = 128;
+    /** 智能体对话需要更长回复 */
+    public static final int AGENT_MAX_TOKENS = 2048;
 
     public String chat(SemanticLlmConfig config, String systemPrompt, String userPrompt) {
+        return chat(config, systemPrompt, userPrompt, SEMANTIC_MAX_TOKENS);
+    }
+
+    public String chat(SemanticLlmConfig config, String systemPrompt, String userPrompt, int maxTokens) {
         if (config == null || config.getApiKey() == null || config.getApiKey().trim().isEmpty()) {
             throw new AtelierException("LLM API Key 未配置");
         }
+        int resolvedMaxTokens = maxTokens > 0 ? maxTokens : SEMANTIC_MAX_TOKENS;
         return LlmConcurrencyLimiter.withPermit(() -> {
             SemanticLlmProviders.applyProviderDefaults(config);
             if (KimiEndpointSupport.useAnthropicProtocol(config.getBaseUrl(), config.getProvider())) {
-                return chatAnthropic(config, systemPrompt, userPrompt);
+                return chatAnthropic(config, systemPrompt, userPrompt, resolvedMaxTokens);
             }
-            return chatOpenAi(config, systemPrompt, userPrompt);
+            return chatOpenAi(config, systemPrompt, userPrompt, resolvedMaxTokens);
         });
     }
 
-    private String chatAnthropic(SemanticLlmConfig config, String systemPrompt, String userPrompt) {
+    private String chatAnthropic(SemanticLlmConfig config, String systemPrompt, String userPrompt, int maxTokens) {
         String model = KimiEndpointSupport.resolveModel(config.getBaseUrl(), config.getProvider(), config.getModel());
         int timeout = timeoutSeconds(config);
         String endpoint = KimiEndpointSupport.buildAnthropicMessagesUrl(config.getBaseUrl());
@@ -54,7 +61,7 @@ public class LlmChatClient {
         try {
             ObjectNode body = MAPPER.createObjectNode();
             body.put("model", model);
-            body.put("max_tokens", SEMANTIC_MAX_TOKENS);
+            body.put("max_tokens", maxTokens);
             if (systemPrompt != null && !systemPrompt.isEmpty()) {
                 body.put("system", systemPrompt);
             }
@@ -94,7 +101,7 @@ public class LlmChatClient {
         }
     }
 
-    private String chatOpenAi(SemanticLlmConfig config, String systemPrompt, String userPrompt) {
+    private String chatOpenAi(SemanticLlmConfig config, String systemPrompt, String userPrompt, int maxTokens) {
         String baseUrl = KimiEndpointSupport.normalizeOpenAiBaseUrl(config.getBaseUrl(), config.getProvider());
         String model = KimiEndpointSupport.resolveModel(baseUrl, config.getProvider(), config.getModel());
         int timeout = timeoutSeconds(config);
@@ -106,7 +113,7 @@ public class LlmChatClient {
         try {
             ObjectNode body = MAPPER.createObjectNode();
             body.put("model", model);
-            body.put("max_tokens", SEMANTIC_MAX_TOKENS);
+            body.put("max_tokens", maxTokens);
             ArrayNode messages = body.putArray("messages");
             if (systemPrompt != null && !systemPrompt.isEmpty()) {
                 ObjectNode system = messages.addObject();
@@ -224,7 +231,7 @@ public class LlmChatClient {
         return text.length() <= max ? text : text.substring(0, max) + "...";
     }
 
-    static String extractJsonObject(String content) {
+    public static String extractJsonObject(String content) {
         int start = content.indexOf('{');
         int end = content.lastIndexOf('}');
         if (start >= 0 && end > start) {

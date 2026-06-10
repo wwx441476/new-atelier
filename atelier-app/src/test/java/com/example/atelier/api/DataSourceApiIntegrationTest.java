@@ -5,7 +5,10 @@ import com.example.atelier.api.dto.DataSourceResponse;
 import com.example.atelier.domain.datasource.DbColumnInfo;
 import com.example.atelier.domain.datasource.DbSchemaInfo;
 import com.example.atelier.domain.datasource.DbTableInfo;
+import com.example.atelier.domain.datasource.DbCreateTableColumn;
+import com.example.atelier.domain.datasource.DbCreateTableRequest;
 import com.example.atelier.domain.query.QueryResult;
+import com.example.atelier.domain.query.SqlExecuteResult;
 import com.example.atelier.infra.datasource.DataSourceRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -203,6 +206,99 @@ public class DataSourceApiIntegrationTest {
         QueryResult result = response.getBody().getData();
         assertEquals(2, result.getTotal());
         assertTrue(result.getSql().contains("dept_code IN ('001')"));
+    }
+
+    @Test
+    public void browseCreateTable_shouldCreatePhysicalTable() {
+        String tableName = "copilot_demo_" + System.currentTimeMillis();
+        DbCreateTableRequest request = DbCreateTableRequest.builder()
+                .schema("PUBLIC")
+                .tableName(tableName)
+                .ifNotExists(true)
+                .columns(java.util.Arrays.asList(
+                        DbCreateTableColumn.builder()
+                                .name("id")
+                                .type("VARCHAR(32)")
+                                .nullable(false)
+                                .primaryKey(true)
+                                .build(),
+                        DbCreateTableColumn.builder()
+                                .name("name")
+                                .type("VARCHAR(100)")
+                                .nullable(true)
+                                .primaryKey(false)
+                                .build()
+                ))
+                .build();
+
+        ResponseEntity<ApiResponse<SqlExecuteResult>> response = restTemplate.exchange(
+                baseUrl() + "/datasources/ds-demo/browse/tables/create",
+                HttpMethod.POST,
+                new HttpEntity<>(request),
+                new ParameterizedTypeReference<ApiResponse<SqlExecuteResult>>() {
+                });
+        assertEquals(0, response.getBody().getCode());
+        SqlExecuteResult result = response.getBody().getData();
+        assertNotNull(result);
+        assertEquals("CREATE TABLE", result.getStatementType());
+        assertTrue(result.getSql().contains(tableName.toUpperCase()) || result.getSql().contains(tableName));
+
+        ResponseEntity<ApiResponse<List<DbTableInfo>>> tablesResponse = restTemplate.exchange(
+                baseUrl() + "/datasources/ds-demo/browse/tables?schema=PUBLIC",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<ApiResponse<List<DbTableInfo>>>() {
+                });
+        assertTrue(tablesResponse.getBody().getData().stream()
+                .anyMatch(table -> tableName.equalsIgnoreCase(table.getName())));
+    }
+
+    @Test
+    public void browseExecuteWriteSql_shouldInsertAndDeleteRow() {
+        String tableName = "write_demo_" + System.currentTimeMillis();
+        DbCreateTableRequest request = DbCreateTableRequest.builder()
+                .schema("PUBLIC")
+                .tableName(tableName)
+                .ifNotExists(true)
+                .columns(Collections.singletonList(
+                        DbCreateTableColumn.builder()
+                                .name("id")
+                                .type("VARCHAR(32)")
+                                .nullable(false)
+                                .primaryKey(true)
+                                .build()
+                ))
+                .build();
+        restTemplate.exchange(
+                baseUrl() + "/datasources/ds-demo/browse/tables/create",
+                HttpMethod.POST,
+                new HttpEntity<>(request),
+                new ParameterizedTypeReference<ApiResponse<SqlExecuteResult>>() {
+                });
+
+        Map<String, Object> insertBody = new HashMap<>();
+        insertBody.put("sql", "INSERT INTO PUBLIC." + tableName + " (id) VALUES ('row-1')");
+        ResponseEntity<ApiResponse<SqlExecuteResult>> insertResponse = restTemplate.exchange(
+                baseUrl() + "/datasources/ds-demo/browse/execute",
+                HttpMethod.POST,
+                new HttpEntity<>(insertBody),
+                new ParameterizedTypeReference<ApiResponse<SqlExecuteResult>>() {
+                });
+        assertEquals(0, insertResponse.getBody().getCode());
+        assertEquals("INSERT", insertResponse.getBody().getData().getStatementType());
+        assertEquals(1, insertResponse.getBody().getData().getAffectedRows());
+
+        Map<String, Object> deleteBody = new HashMap<>();
+        deleteBody.put("sql", "DELETE FROM PUBLIC." + tableName + " WHERE id = 'row-1'");
+        ResponseEntity<ApiResponse<SqlExecuteResult>> deleteResponse = restTemplate.exchange(
+                baseUrl() + "/datasources/ds-demo/browse/execute",
+                HttpMethod.POST,
+                new HttpEntity<>(deleteBody),
+                new ParameterizedTypeReference<ApiResponse<SqlExecuteResult>>() {
+                });
+        assertEquals(0, deleteResponse.getBody().getCode());
+        assertEquals("DELETE", deleteResponse.getBody().getData().getStatementType());
+        assertEquals(1, deleteResponse.getBody().getData().getAffectedRows());
     }
 
     @Test

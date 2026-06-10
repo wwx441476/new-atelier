@@ -3,14 +3,17 @@ package com.example.atelier.api;
 import com.example.atelier.api.dto.ApiResponse;
 import com.example.atelier.api.dto.DataSourceRequest;
 import com.example.atelier.api.dto.DataSourceResponse;
+import com.example.atelier.api.dto.DbBrowseExecuteRequest;
 import com.example.atelier.api.dto.DbBrowseQueryRequest;
 import com.example.atelier.domain.datasource.DbColumnInfo;
+import com.example.atelier.domain.datasource.DbCreateTableRequest;
 import com.example.atelier.domain.metric.FilterCondition;
 import com.example.atelier.domain.metric.FilterGroup;
 import com.example.atelier.domain.metric.FilterOperator;
 import com.example.atelier.domain.datasource.DbSchemaInfo;
 import com.example.atelier.domain.datasource.DbTableInfo;
 import com.example.atelier.domain.query.QueryResult;
+import com.example.atelier.domain.query.SqlExecuteResult;
 import com.example.atelier.infra.datasource.ConnectionTester;
 import com.example.atelier.infra.datasource.DataSourceConfig;
 import com.example.atelier.infra.datasource.DataSourceRegistry;
@@ -130,6 +133,20 @@ public class DataSourceController {
             @RequestBody DbBrowseQueryRequest request) {
         return ApiResponse.ok(databaseBrowserService.executeSelectQuery(
                 id, request.getSql(), request.getPageIndex(), request.getPageSize()));
+    }
+
+    @PostMapping("/{id}/browse/execute")
+    public ApiResponse<SqlExecuteResult> browseExecuteWriteSql(
+            @PathVariable String id,
+            @RequestBody DbBrowseExecuteRequest request) {
+        return ApiResponse.ok(databaseBrowserService.executeWriteSql(id, request.getSql()));
+    }
+
+    @PostMapping("/{id}/browse/tables/create")
+    public ApiResponse<SqlExecuteResult> browseCreateTable(
+            @PathVariable String id,
+            @RequestBody DbCreateTableRequest request) {
+        return ApiResponse.ok(databaseBrowserService.createTable(id, request));
     }
 
     @PostMapping("/{id}/browse/tables/{table}/query")

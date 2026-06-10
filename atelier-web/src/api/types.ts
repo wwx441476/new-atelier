@@ -60,6 +60,31 @@ export interface DbBrowseQueryRequest {
   pageSize?: number;
 }
 
+export interface DbBrowseExecuteRequest {
+  sql: string;
+}
+
+export interface SqlExecuteResult {
+  sql: string;
+  statementType: string;
+  affectedRows: number;
+  message: string;
+}
+
+export interface DbCreateTableColumn {
+  name: string;
+  type: string;
+  nullable?: boolean;
+  primaryKey?: boolean;
+}
+
+export interface DbCreateTableRequest {
+  schema?: string;
+  tableName: string;
+  columns: DbCreateTableColumn[];
+  ifNotExists?: boolean;
+}
+
 export interface MetaTable {
   id?: string;
   catalogCode?: string;
@@ -69,6 +94,20 @@ export interface MetaTable {
   schemaCode?: string;
   comments?: string;
   fields?: MetaTableField[];
+}
+
+export interface MetaTableImportRequest {
+  datasourceId: string;
+  schemaCode?: string;
+  catalogCode?: string;
+  tableNames: string[];
+}
+
+export interface MetaTableImportResult {
+  imported?: MetaTable[];
+  skipped?: string[];
+  importedCount?: number;
+  skippedCount?: number;
 }
 
 export interface MetaTableDdlResult {
@@ -325,6 +364,37 @@ export interface WarningRulePreviewResult {
   matchedCount: number;
   rows: Record<string, unknown>[];
   headers?: Record<string, string>;
+}
+
+export interface CopilotChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface CopilotChatRequest {
+  messages: CopilotChatMessage[];
+  currentPage?: string;
+  dryRun?: boolean;
+}
+
+export interface CopilotSqlQueryResult extends QueryResult {
+  datasourceId: string;
+  pageIndex: number;
+  pageSize: number;
+}
+
+export interface CopilotActionResult {
+  tool: string;
+  success: boolean;
+  planned?: boolean;
+  message: string;
+  result?: unknown;
+}
+
+export interface CopilotChatResponse {
+  reply: string;
+  actions?: CopilotActionResult[];
+  workspaceSummary?: string;
 }
 
 export interface ConfigDataSource {

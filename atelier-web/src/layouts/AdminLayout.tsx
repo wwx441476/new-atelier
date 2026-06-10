@@ -3,6 +3,11 @@ import { Button, Layout, Menu, Space, theme, Typography } from 'antd';
 import { SettingOutlined } from '@ant-design/icons';
 import OnboardingGuide, { OnboardingHeaderActions } from '../components/OnboardingGuide';
 import ConfigBundleActions from '../components/ConfigBundleActions';
+import CopilotDrawer from '../components/copilot/CopilotDrawer';
+import { CopilotProvider } from '../components/copilot/CopilotContext';
+import CopilotHeaderButton from '../components/copilot/CopilotHeaderButton';
+import { useCopilot } from '../components/copilot/CopilotContext';
+import '../components/copilot/CopilotDrawer.css';
 import SemanticLlmSettingsModal from '../components/SemanticLlmSettingsModal';
 import { ONBOARDING_STEPS } from '../guide/steps';
 import { useOnboarding } from '../guide/OnboardingContext';
@@ -32,6 +37,7 @@ function AdminLayoutInner() {
   const location = useLocation();
   const { token } = theme.useToken();
   const { storage } = useOnboarding();
+  const { open: copilotOpen } = useCopilot();
 
   const menuItems = ONBOARDING_STEPS.map((step) => ({
     key: step.path,
@@ -89,7 +95,7 @@ function AdminLayoutInner() {
           style={{ background: 'transparent', border: 'none' }}
         />
       </Sider>
-      <Layout>
+      <Layout className={copilotOpen ? 'admin-main-with-copilot' : undefined}>
         <Header
           style={{
             padding: '0 24px',
@@ -102,6 +108,7 @@ function AdminLayoutInner() {
         >
           <Typography.Text type="secondary">new-atelier 管理控制台</Typography.Text>
           <Space size="middle">
+            <CopilotHeaderButton />
             <Button icon={<SettingOutlined />} onClick={() => setLlmSettingsOpen(true)}>
               语义检测设置
             </Button>
@@ -111,6 +118,7 @@ function AdminLayoutInner() {
         </Header>
         <OnboardingGuide />
         <SemanticLlmSettingsModal open={llmSettingsOpen} onClose={() => setLlmSettingsOpen(false)} />
+        <CopilotDrawer />
         <Content style={{ margin: 24 }}>
           <div
             style={{
@@ -130,5 +138,9 @@ function AdminLayoutInner() {
 }
 
 export default function AdminLayout() {
-  return <AdminLayoutInner />;
+  return (
+    <CopilotProvider>
+      <AdminLayoutInner />
+    </CopilotProvider>
+  );
 }

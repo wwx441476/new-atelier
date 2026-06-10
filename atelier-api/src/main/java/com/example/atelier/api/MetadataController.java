@@ -4,6 +4,8 @@ import com.example.atelier.api.dto.ApiResponse;
 import com.example.atelier.domain.metadata.MetaTable;
 import com.example.atelier.domain.metadata.MetaTableDdlResult;
 import com.example.atelier.domain.metadata.MetaTableField;
+import com.example.atelier.domain.metadata.MetaTableImportRequest;
+import com.example.atelier.domain.metadata.MetaTableImportResult;
 import com.example.atelier.domain.query.QueryResult;
 import com.example.atelier.metadata.spi.MetadataService;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -77,6 +79,11 @@ public class MetadataController {
     @PostMapping("/discover")
     public ApiResponse<List<MetaTable>> discover(@RequestParam String datasourceId) {
         return ApiResponse.ok(metadataService.discoverTables(datasourceId));
+    }
+
+    @PostMapping("/tables/import")
+    public ApiResponse<MetaTableImportResult> importTables(@RequestBody MetaTableImportRequest request) {
+        return ApiResponse.ok(metadataService.importTablesFromDatabase(request));
     }
 
     @GetMapping("/tables/{id}/preview")

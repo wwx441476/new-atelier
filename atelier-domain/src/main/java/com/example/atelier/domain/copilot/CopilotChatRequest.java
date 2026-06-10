@@ -1,0 +1,24 @@
+package com.example.atelier.domain.copilot;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class CopilotChatRequest {
+
+    private List<CopilotChatMessage> messages;
+
+    /** 当前页面路径，如 /metadata，用于上下文提示 */
+    private String currentPage;
+
+    /** true 时只规划不执行 */
+    @Builder.Default
+    private boolean dryRun = false;
+}

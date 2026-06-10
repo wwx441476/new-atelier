@@ -12,12 +12,13 @@ import {
   Typography,
   message,
 } from 'antd';
-import { CodeOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { CloudDownloadOutlined, CodeOutlined, EyeOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import GuidePageShell from '../components/GuidePageShell';
 import PageHeader from '../components/PageHeader';
 import { buildMetadataFieldDemo, ORDER_FIELDS } from '../guide/demoTutorial';
 import { useTutorialDemo } from '../guide/useTutorialDemo';
+import MetaTableSyncModal from '../components/MetaTableSyncModal';
 import SqlPreviewBlock from '../components/SqlPreviewBlock';
 import { metadataApi } from '../api/metadata';
 import { datasourceApi } from '../api/datasource';
@@ -36,6 +37,7 @@ export default function MetadataPage() {
   const [datasources, setDatasources] = useState<DataSourceResponse[]>([]);
   const [filterDs, setFilterDs] = useState<string | undefined>();
   const [tableModalOpen, setTableModalOpen] = useState(false);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [fieldModalOpen, setFieldModalOpen] = useState(false);
   const [editingTable, setEditingTable] = useState<MetaTable | null>(null);
   const [editingField, setEditingField] = useState<MetaTableField | null>(null);
@@ -465,6 +467,9 @@ export default function MetadataPage() {
           <Button icon={<ReloadOutlined />} onClick={loadTables}>
             刷新
           </Button>
+          <Button icon={<CloudDownloadOutlined />} onClick={() => setSyncModalOpen(true)}>
+            从库同步
+          </Button>
           <Button id="guide-primary-action" type="primary" icon={<PlusOutlined />} onClick={openCreateTable}>
             新建元数据表
           </Button>
@@ -554,6 +559,14 @@ export default function MetadataPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <MetaTableSyncModal
+        open={syncModalOpen}
+        datasources={datasources}
+        defaultDatasourceId={filterDs}
+        onClose={() => setSyncModalOpen(false)}
+        onImported={loadTables}
+      />
 
       <Modal
         title={`数据预览 — ${previewTable?.tableCode || ''}`}

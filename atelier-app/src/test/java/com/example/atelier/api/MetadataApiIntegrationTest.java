@@ -4,6 +4,8 @@ import com.example.atelier.api.dto.ApiResponse;
 import com.example.atelier.domain.metadata.MetaTable;
 import com.example.atelier.domain.metadata.MetaTableDdlResult;
 import com.example.atelier.domain.metadata.MetaTableField;
+import com.example.atelier.domain.metadata.MetaTableImportRequest;
+import com.example.atelier.domain.metadata.MetaTableImportResult;
 import com.example.atelier.domain.query.QueryResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +19,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -141,6 +144,33 @@ public class MetadataApiIntegrationTest {
         assertTrue(ddlResult.getDdl().contains("cost_amount"));
         assertEquals("orders", ddlResult.getTableCode());
         assertTrue(ddlResult.isTableExists());
+    }
+
+    @Test
+    public void importTables_shouldSkipExistingTables() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        MetaTableImportRequest request = MetaTableImportRequest.builder()
+                .datasourceId("ds-demo")
+                .schemaCode("PUBLIC")
+                .catalogCode("finance")
+                .tableNames(Arrays.asList("orders", "dept"))
+                .build();
+        ResponseEntity<ApiResponse<MetaTableImportResult>> response = restTemplate.exchange(
+                "http://localhost:" + port + "/api/v2/metadata/tables/import",
+                HttpMethod.POST,
+                new HttpEntity<>(request, headers),
+                new ParameterizedTypeReference<ApiResponse<MetaTableImportResult>>() {
+                });
+        assertEquals(200, response.getStatusCodeValue());
+        assertNotNull(response.getBody());
+        assertEquals(0, response.getBody().getCode());
+        MetaTableImportResult result = response.getBody().getData();
+        assertEquals(0, result.getImportedCount());
+        assertEquals(2, result.getSkippedCount());
+        assertTrue(result.getSkipped().contains("orders"));
+        assertTrue(result.getSkipped().contains("dept"));
     }
 
     @Test

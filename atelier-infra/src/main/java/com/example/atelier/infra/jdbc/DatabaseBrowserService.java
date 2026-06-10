@@ -1,8 +1,10 @@
 package com.example.atelier.infra.jdbc;
 
 import com.example.atelier.domain.datasource.DbColumnInfo;
+import com.example.atelier.domain.datasource.DbCreateTableRequest;
 import com.example.atelier.domain.datasource.DbSchemaInfo;
 import com.example.atelier.domain.datasource.DbTableInfo;
+import com.example.atelier.domain.query.SqlExecuteResult;
 import com.example.atelier.domain.metric.FilterCondition;
 import com.example.atelier.domain.metric.FilterGroup;
 import com.example.atelier.domain.query.QueryResult;
@@ -180,6 +182,37 @@ public class DatabaseBrowserService {
         return executePagedQuery(datasourceId, cleanSql, pageIndex, pageSize);
     }
 
+    public SqlExecuteResult executeWriteSql(String datasourceId, String sql) {
+        ensureDatasourceExists(datasourceId);
+        String cleanSql = validateAndNormalizeWriteSql(sql);
+        String statementType = detectWriteStatementType(cleanSql);
+        try (Connection connection = registry.getConnection(datasourceId)) {
+            int affectedRows = jdbcTemplate.executeUpdate(connection, cleanSql);
+            return SqlExecuteResult.builder()
+                    .sql(cleanSql)
+                    .statementType(statementType)
+                    .affectedRows(affectedRows)
+                    .message(buildWriteSuccessMessage(statementType, affectedRows))
+                    .build();
+        } catch (AtelierException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AtelierException("SQL 执行失败: " + e.getMessage(), e);
+        }
+    }
+
+    public SqlExecuteResult createTable(String datasourceId, DbCreateTableRequest request) {
+        ensureDatasourceExists(datasourceId);
+        String ddl = previewCreateTableDdl(datasourceId, request);
+        return executeWriteSql(datasourceId, ddl);
+    }
+
+    public String previewCreateTableDdl(String datasourceId, DbCreateTableRequest request) {
+        ensureDatasourceExists(datasourceId);
+        DbType dbType = registry.getDbType(datasourceId);
+        return BrowseDdlBuilder.buildCreateTable(dbType, request);
+    }
+
     private QueryResult executePagedQuery(String datasourceId, String sql, int pageIndex, int pageSize) {
         ensureDatasourceExists(datasourceId);
         DbType dbType = registry.getDbType(datasourceId);
@@ -221,6 +254,70 @@ public class DatabaseBrowserService {
             sql += " WHERE " + whereClause;
         }
         return sql;
+    }
+
+    private String validateAndNormalizeWriteSql(String sql) {
+        if (sql == null || sql.trim().isEmpty()) {
+            throw new AtelierException("SQL 不能为空");
+        }
+        String normalized = sql.trim().replaceAll(";+\\s*$", "");
+        if (normalized.contains(";")) {
+            throw new AtelierException("仅允许单条语句");
+        }
+        String upper = normalized.toUpperCase(Locale.ROOT);
+        if (!isAllowedWriteStatement(upper)) {
+            throw new AtelierException("仅支持 CREATE TABLE / ALTER TABLE / DROP TABLE / INSERT / UPDATE / DELETE");
+        }
+        String[] forbidden = {
+                "DROP DATABASE", "DROP SCHEMA", "TRUNCATE ", "GRANT ", "REVOKE ",
+                "EXEC ", "EXECUTE ", "CALL ", "MERGE ", "ATTACH ", "DETACH "
+        };
+        for (String keyword : forbidden) {
+            if (upper.contains(keyword)) {
+                throw new AtelierException("SQL 包含不允许的关键字: " + keyword.trim());
+            }
+        }
+        return normalized;
+    }
+
+    private boolean isAllowedWriteStatement(String upper) {
+        return upper.startsWith("INSERT ")
+                || upper.startsWith("UPDATE ")
+                || upper.startsWith("DELETE ")
+                || upper.startsWith("CREATE TABLE")
+                || upper.startsWith("ALTER TABLE")
+                || upper.startsWith("DROP TABLE");
+    }
+
+    private String detectWriteStatementType(String sql) {
+        String upper = sql.toUpperCase(Locale.ROOT);
+        if (upper.startsWith("CREATE TABLE")) {
+            return "CREATE TABLE";
+        }
+        if (upper.startsWith("ALTER TABLE")) {
+            return "ALTER TABLE";
+        }
+        if (upper.startsWith("DROP TABLE")) {
+            return "DROP TABLE";
+        }
+        if (upper.startsWith("INSERT")) {
+            return "INSERT";
+        }
+        if (upper.startsWith("UPDATE")) {
+            return "UPDATE";
+        }
+        if (upper.startsWith("DELETE")) {
+            return "DELETE";
+        }
+        return "WRITE";
+    }
+
+    private String buildWriteSuccessMessage(String statementType, int affectedRows) {
+        if ("CREATE TABLE".equals(statementType) || "ALTER TABLE".equals(statementType)
+                || "DROP TABLE".equals(statementType)) {
+            return statementType + " 执行成功";
+        }
+        return statementType + " 执行成功，影响 " + affectedRows + " 行";
     }
 
     private String validateAndNormalizeSelectSql(String sql) {
