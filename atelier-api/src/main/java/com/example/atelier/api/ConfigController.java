@@ -1,6 +1,7 @@
 package com.example.atelier.api;
 
 import com.example.atelier.api.dto.ApiResponse;
+import com.example.atelier.api.dto.ConfigExportRequest;
 import com.example.atelier.api.dto.ConfigImportRequest;
 import com.example.atelier.api.service.ConfigBundleService;
 import com.example.atelier.domain.config.AtelierConfigBundle;
@@ -29,7 +30,17 @@ public class ConfigController {
     @GetMapping("/export")
     public ApiResponse<AtelierConfigBundle> export(
             @RequestParam(value = "includeSecrets", defaultValue = "true") boolean includeSecrets) {
-        return ApiResponse.ok(configBundleService.exportBundle(includeSecrets));
+        return ApiResponse.ok(configBundleService.exportBundle(
+                includeSecrets, ConfigImportOptions.builder().build()));
+    }
+
+    @PostMapping("/export")
+    public ApiResponse<AtelierConfigBundle> exportWithOptions(@RequestBody ConfigExportRequest request) {
+        boolean includeSecrets = request == null || request.isIncludeSecrets();
+        ConfigImportOptions options = request != null && request.getOptions() != null
+                ? request.getOptions()
+                : ConfigImportOptions.builder().build();
+        return ApiResponse.ok(configBundleService.exportBundle(includeSecrets, options));
     }
 
     @PostMapping("/import")

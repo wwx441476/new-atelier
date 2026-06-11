@@ -531,6 +531,7 @@ export interface AtelierConfigBundle {
   }>;
   metrics?: MetricDefinition[];
   warningRules?: WarningRule[];
+  semanticLlmProfiles?: SemanticLlmProfilesSaveRequest;
 }
 
 export interface ConfigImportOptions {
@@ -539,6 +540,12 @@ export interface ConfigImportOptions {
   importDimensions?: boolean;
   importMetrics?: boolean;
   importWarningRules?: boolean;
+  importSemanticLlm?: boolean;
+}
+
+export interface ConfigExportRequest {
+  includeSecrets?: boolean;
+  options?: ConfigImportOptions;
 }
 
 export interface ConfigImportResult {

@@ -33,4 +33,8 @@ public class ConfigImportOptions {
     /** 是否导入预警规则 */
     @Builder.Default
     private boolean importWarningRules = true;
+
+    /** 是否导入语义检测 LLM 配置 */
+    @Builder.Default
+    private boolean importSemanticLlm = true;
 }

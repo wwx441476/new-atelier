@@ -6,6 +6,7 @@ import com.example.atelier.domain.dimension.DimensionValue;
 import com.example.atelier.domain.metadata.MetaTable;
 import com.example.atelier.domain.metadata.MetaTableField;
 import com.example.atelier.domain.metric.MetricDefinition;
+import com.example.atelier.domain.settings.SemanticLlmProfilesSettings;
 import com.example.atelier.domain.warning.WarningRule;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -46,6 +47,9 @@ public class AtelierConfigBundle {
 
     @Builder.Default
     private List<WarningRule> warningRules = new ArrayList<>();
+
+    /** 语义检测多 LLM 配置 */
+    private SemanticLlmProfilesSettings semanticLlmProfiles;
 
     @Data
     @Builder

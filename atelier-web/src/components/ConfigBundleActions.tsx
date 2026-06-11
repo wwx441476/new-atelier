@@ -14,13 +14,23 @@ import type { UploadProps } from 'antd';
 import { configApi } from '../api/config';
 import type { AtelierConfigBundle, ConfigImportOptions } from '../api/types';
 
-const DEFAULT_IMPORT_OPTIONS: ConfigImportOptions = {
+const DEFAULT_SCOPE_OPTIONS: ConfigImportOptions = {
   importDatasources: true,
   importMetadata: true,
   importDimensions: true,
   importMetrics: true,
   importWarningRules: true,
+  importSemanticLlm: true,
 };
+
+const SCOPE_ITEMS: Array<{ key: keyof ConfigImportOptions; label: string }> = [
+  { key: 'importDatasources', label: '数据源' },
+  { key: 'importMetadata', label: '元数据表与字段' },
+  { key: 'importDimensions', label: '维度与维度值' },
+  { key: 'importMetrics', label: '指标定义' },
+  { key: 'importWarningRules', label: '预警规则' },
+  { key: 'importSemanticLlm', label: '语义检测设置' },
+];
 
 function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -33,29 +43,57 @@ function downloadJson(filename: string, data: unknown) {
 }
 
 function summarizeBundle(bundle: AtelierConfigBundle): string {
-  return [
+  const parts = [
     `数据源 ${bundle.datasources?.length ?? 0} 个`,
     `元数据表 ${bundle.metadataTables?.length ?? 0} 个`,
     `维度 ${bundle.dimensions?.length ?? 0} 个`,
     `指标 ${bundle.metrics?.length ?? 0} 个`,
     `预警规则 ${bundle.warningRules?.length ?? 0} 条`,
-  ].join(' · ');
+    `LLM 配置 ${bundle.semanticLlmProfiles?.profiles?.length ?? 0} 套`,
+  ];
+  return parts.join(' · ');
+}
+
+function ScopeCheckboxes({
+  value,
+  onChange,
+}: {
+  value: ConfigImportOptions;
+  onChange: (next: ConfigImportOptions) => void;
+}) {
+  return (
+    <Space direction="vertical" style={{ marginTop: 8 }}>
+      {SCOPE_ITEMS.map(({ key, label }) => (
+        <Checkbox
+          key={key}
+          checked={value[key] !== false}
+          onChange={(e) => onChange({ ...value, [key]: e.target.checked })}
+        >
+          {label}
+        </Checkbox>
+      ))}
+    </Space>
+  );
 }
 
 export default function ConfigBundleActions() {
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [includeSecrets, setIncludeSecrets] = useState(true);
+  const [exportOptions, setExportOptions] = useState<ConfigImportOptions>(DEFAULT_SCOPE_OPTIONS);
   const [importOpen, setImportOpen] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [importOptions, setImportOptions] = useState<ConfigImportOptions>(DEFAULT_IMPORT_OPTIONS);
+  const [importOptions, setImportOptions] = useState<ConfigImportOptions>(DEFAULT_SCOPE_OPTIONS);
   const [importText, setImportText] = useState('');
   const [parsedBundle, setParsedBundle] = useState<AtelierConfigBundle | null>(null);
 
   const handleExport = async () => {
     setExporting(true);
     try {
-      const bundle = await configApi.exportBundle(includeSecrets);
+      const bundle = await configApi.exportBundle({
+        includeSecrets,
+        options: exportOptions,
+      });
       const stamp = new Date().toISOString().slice(0, 10);
       downloadJson(`atelier-config-${stamp}.json`, bundle);
       message.success('配置已导出');
@@ -65,10 +103,16 @@ export default function ConfigBundleActions() {
     }
   };
 
+  const openExport = () => {
+    setExportOptions({ ...DEFAULT_SCOPE_OPTIONS });
+    setIncludeSecrets(true);
+    setExportOpen(true);
+  };
+
   const openImport = () => {
     setImportText('');
     setParsedBundle(null);
-    setImportOptions({ ...DEFAULT_IMPORT_OPTIONS });
+    setImportOptions({ ...DEFAULT_SCOPE_OPTIONS });
     setImportOpen(true);
   };
 
@@ -116,7 +160,7 @@ export default function ConfigBundleActions() {
   return (
     <>
       <Space size="small">
-        <Button size="small" icon={<DownloadOutlined />} onClick={() => setExportOpen(true)}>
+        <Button size="small" icon={<DownloadOutlined />} onClick={openExport}>
           导出配置
         </Button>
         <Button size="small" icon={<UploadOutlined />} onClick={openImport}>
@@ -131,13 +175,20 @@ export default function ConfigBundleActions() {
         onOk={handleExport}
         okText="下载 JSON"
         confirmLoading={exporting}
+        width={560}
       >
         <Typography.Paragraph type="secondary">
-          导出当前环境全部配置（数据源、元数据、维度、指标、预警规则），可用于迁移到其他环境。
+          按所选范围导出配置 JSON，可用于迁移到其他环境。
         </Typography.Paragraph>
-        <Checkbox checked={includeSecrets} onChange={(e) => setIncludeSecrets(e.target.checked)}>
-          包含数据源密码（迁移到其他环境时建议勾选；分享配置文件时请取消）
-        </Checkbox>
+        <Typography.Text strong style={{ display: 'block' }}>
+          导出范围
+        </Typography.Text>
+        <ScopeCheckboxes value={exportOptions} onChange={setExportOptions} />
+        <div style={{ marginTop: 16 }}>
+          <Checkbox checked={includeSecrets} onChange={(e) => setIncludeSecrets(e.target.checked)}>
+            包含数据源密码与 LLM API Key（迁移到其他环境时建议勾选；分享配置文件时请取消）
+          </Checkbox>
+        </div>
       </Modal>
 
       <Modal
@@ -150,7 +201,7 @@ export default function ConfigBundleActions() {
         width={640}
       >
         <Typography.Paragraph type="secondary">
-          上传或粘贴 JSON 配置包。相同 id / code 的记录将被覆盖更新；数据源密码为空时保留现有密码。
+          上传或粘贴 JSON 配置包。相同 id / code 的记录将被覆盖更新；数据源密码或 LLM API Key 为空时保留现有值。
         </Typography.Paragraph>
         <Upload {...uploadProps}>
           <Button icon={<UploadOutlined />} style={{ marginBottom: 12 }}>
@@ -172,27 +223,7 @@ export default function ConfigBundleActions() {
         <Typography.Text strong style={{ display: 'block', marginTop: 16 }}>
           导入范围
         </Typography.Text>
-        <Space direction="vertical" style={{ marginTop: 8 }}>
-          {(
-            [
-              ['importDatasources', '数据源'],
-              ['importMetadata', '元数据表与字段'],
-              ['importDimensions', '维度与维度值'],
-              ['importMetrics', '指标定义'],
-              ['importWarningRules', '预警规则'],
-            ] as const
-          ).map(([key, label]) => (
-            <Checkbox
-              key={key}
-              checked={importOptions[key] !== false}
-              onChange={(e) =>
-                setImportOptions((prev) => ({ ...prev, [key]: e.target.checked }))
-              }
-            >
-              {label}
-            </Checkbox>
-          ))}
-        </Space>
+        <ScopeCheckboxes value={importOptions} onChange={setImportOptions} />
       </Modal>
     </>
   );

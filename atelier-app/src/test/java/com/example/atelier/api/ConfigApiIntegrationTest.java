@@ -58,6 +58,8 @@ public class ConfigApiIntegrationTest {
         assertEquals(WarningRuleType.SEMANTIC, semanticRule.getRuleType());
         assertNotNull(semanticRule.getRuleConfig());
         assertNotNull(semanticRule.getRuleConfig().getSemantic());
+        assertNotNull(bundle.getSemanticLlmProfiles());
+        assertTrue(bundle.getSemanticLlmProfiles().getProfiles().size() >= 1);
     }
 
     @Test

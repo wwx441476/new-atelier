@@ -1,13 +1,17 @@
-import { getData, postData } from './client';
+import { postData } from './client';
 import type {
   AtelierConfigBundle,
+  ConfigExportRequest,
   ConfigImportOptions,
   ConfigImportResult,
 } from './types';
 
 export const configApi = {
-  exportBundle: (includeSecrets = true) =>
-    getData<AtelierConfigBundle>('/config/export', { includeSecrets }),
+  exportBundle: (request: ConfigExportRequest = {}) =>
+    postData<AtelierConfigBundle>('/config/export', {
+      includeSecrets: request.includeSecrets !== false,
+      options: request.options,
+    }),
   importBundle: (bundle: AtelierConfigBundle, options?: ConfigImportOptions) =>
     postData<ConfigImportResult>('/config/import', { bundle, options }),
 };

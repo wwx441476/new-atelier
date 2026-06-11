@@ -11,6 +11,8 @@ import com.example.atelier.domain.dimension.DimensionValueSource;
 import com.example.atelier.domain.metadata.MetaTable;
 import com.example.atelier.domain.metadata.MetaTableField;
 import com.example.atelier.domain.metric.MetricDefinition;
+import com.example.atelier.domain.settings.SemanticLlmProfile;
+import com.example.atelier.domain.settings.SemanticLlmProfilesSettings;
 import com.example.atelier.domain.warning.WarningRule;
 import com.example.atelier.infra.datasource.DataSourceConfig;
 import com.example.atelier.infra.datasource.DataSourceRegistry;
@@ -19,14 +21,18 @@ import com.example.atelier.infra.exception.AtelierException;
 import com.example.atelier.infra.persistence.service.DataSourcePersistenceService;
 import com.example.atelier.infra.persistence.service.MetricDefinitionService;
 import com.example.atelier.metadata.spi.MetadataService;
+import com.example.atelier.warning.service.SemanticLlmConfigLoader;
 import com.example.atelier.warning.spi.WarningRuleService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * 全量配置导出 / 导入 — 支持跨环境 JSON 迁移。
@@ -40,57 +46,75 @@ public class ConfigBundleService {
     private final DimensionService dimensionService;
     private final MetricDefinitionService metricDefinitionService;
     private final WarningRuleService warningRuleService;
+    private final SemanticLlmConfigLoader llmConfigLoader;
 
     public ConfigBundleService(DataSourcePersistenceService dataSourceService,
                                DataSourceRegistry dataSourceRegistry,
                                MetadataService metadataService,
                                DimensionService dimensionService,
                                MetricDefinitionService metricDefinitionService,
-                               WarningRuleService warningRuleService) {
+                               WarningRuleService warningRuleService,
+                               SemanticLlmConfigLoader llmConfigLoader) {
         this.dataSourceService = dataSourceService;
         this.dataSourceRegistry = dataSourceRegistry;
         this.metadataService = metadataService;
         this.dimensionService = dimensionService;
         this.metricDefinitionService = metricDefinitionService;
         this.warningRuleService = warningRuleService;
+        this.llmConfigLoader = llmConfigLoader;
     }
 
-    public AtelierConfigBundle exportBundle(boolean includeSecrets) {
+    public AtelierConfigBundle exportBundle(boolean includeSecrets, ConfigImportOptions options) {
+        ConfigImportOptions scope = options != null ? options : ConfigImportOptions.builder().build();
         AtelierConfigBundle bundle = AtelierConfigBundle.builder()
                 .exportedAt(Instant.now())
                 .build();
 
-        for (DataSourceConfig config : dataSourceService.findAllConfigs()) {
-            bundle.getDatasources().add(toExportDataSource(config, includeSecrets));
-        }
-
-        for (MetaTable table : metadataService.listTables()) {
-            List<MetaTableField> fields = table.getId() != null
-                    ? metadataService.listFields(table.getId())
-                    : java.util.Collections.emptyList();
-            bundle.getMetadataTables().add(AtelierConfigBundle.MetaTableExport.builder()
-                    .table(table)
-                    .fields(fields)
-                    .build());
-        }
-
-        for (Dimension dimension : dimensionService.listDimensions()) {
-            Dimension full = dimension.getId() != null
-                    ? dimensionService.getDimension(dimension.getId()).orElse(dimension)
-                    : dimension;
-            List<DimensionValue> values = java.util.Collections.emptyList();
-            if (full.getId() != null && full.getValueSource() != DimensionValueSource.TABLE) {
-                values = dimensionService.listValues(full.getId());
+        if (scope.isImportDatasources()) {
+            for (DataSourceConfig config : dataSourceService.findAllConfigs()) {
+                bundle.getDatasources().add(toExportDataSource(config, includeSecrets));
             }
-            bundle.getDimensions().add(AtelierConfigBundle.DimensionExport.builder()
-                    .dimension(full)
-                    .fields(full.getFields())
-                    .values(values)
-                    .build());
         }
 
-        bundle.getMetrics().addAll(metricDefinitionService.listAll());
-        bundle.getWarningRules().addAll(warningRuleService.listRules());
+        if (scope.isImportMetadata()) {
+            for (MetaTable table : metadataService.listTables()) {
+                List<MetaTableField> fields = table.getId() != null
+                        ? metadataService.listFields(table.getId())
+                        : java.util.Collections.emptyList();
+                bundle.getMetadataTables().add(AtelierConfigBundle.MetaTableExport.builder()
+                        .table(table)
+                        .fields(fields)
+                        .build());
+            }
+        }
+
+        if (scope.isImportDimensions()) {
+            for (Dimension dimension : dimensionService.listDimensions()) {
+                Dimension full = dimension.getId() != null
+                        ? dimensionService.getDimension(dimension.getId()).orElse(dimension)
+                        : dimension;
+                List<DimensionValue> values = java.util.Collections.emptyList();
+                if (full.getId() != null && full.getValueSource() != DimensionValueSource.TABLE) {
+                    values = dimensionService.listValues(full.getId());
+                }
+                bundle.getDimensions().add(AtelierConfigBundle.DimensionExport.builder()
+                        .dimension(full)
+                        .fields(full.getFields())
+                        .values(values)
+                        .build());
+            }
+        }
+
+        if (scope.isImportMetrics()) {
+            bundle.getMetrics().addAll(metricDefinitionService.listAll());
+        }
+        if (scope.isImportWarningRules()) {
+            bundle.getWarningRules().addAll(warningRuleService.listRules());
+        }
+        if (scope.isImportSemanticLlm()) {
+            bundle.setSemanticLlmProfiles(
+                    toExportLlmProfiles(llmConfigLoader.loadProfilesSettings(), includeSecrets));
+        }
         return bundle;
     }
 
@@ -120,6 +144,9 @@ public class ConfigBundleService {
         }
         if (options.isImportWarningRules()) {
             importWarningRules(bundle.getWarningRules(), result);
+        }
+        if (options.isImportSemanticLlm()) {
+            importSemanticLlm(bundle.getSemanticLlmProfiles(), result);
         }
 
         result.setMessage("配置导入完成");
@@ -228,6 +255,78 @@ public class ConfigBundleService {
             count++;
         }
         result.getImported().put("metrics", count);
+    }
+
+    private void importSemanticLlm(SemanticLlmProfilesSettings exported, ConfigImportResult result) {
+        if (exported == null || exported.getProfiles() == null || exported.getProfiles().isEmpty()) {
+            return;
+        }
+        SemanticLlmProfilesSettings existing = llmConfigLoader.loadProfilesSettings();
+        Map<String, SemanticLlmProfile> existingById = existing.getProfiles().stream()
+                .collect(Collectors.toMap(SemanticLlmProfile::getId, profile -> profile, (a, b) -> a));
+
+        List<SemanticLlmProfile> profiles = new ArrayList<>();
+        for (SemanticLlmProfile profile : exported.getProfiles()) {
+            if (profile == null || isBlank(profile.getId())) {
+                continue;
+            }
+            SemanticLlmProfile merged = profile;
+            SemanticLlmProfile previous = existingById.get(profile.getId());
+            if (previous != null && isBlank(profile.getApiKey())) {
+                merged = SemanticLlmProfile.builder()
+                        .id(profile.getId())
+                        .name(profile.getName() != null ? profile.getName() : previous.getName())
+                        .enabled(profile.isEnabled())
+                        .provider(profile.getProvider() != null ? profile.getProvider() : previous.getProvider())
+                        .apiKey(previous.getApiKey())
+                        .model(profile.getModel() != null ? profile.getModel() : previous.getModel())
+                        .baseUrl(profile.getBaseUrl() != null ? profile.getBaseUrl() : previous.getBaseUrl())
+                        .timeoutSeconds(profile.getTimeoutSeconds() != null
+                                ? profile.getTimeoutSeconds()
+                                : previous.getTimeoutSeconds())
+                        .build();
+            }
+            profiles.add(merged);
+        }
+        if (profiles.isEmpty()) {
+            return;
+        }
+        String candidateActiveId = exported.getActiveProfileId();
+        final String activeProfileId = candidateActiveId != null
+                && profiles.stream().anyMatch(p -> candidateActiveId.equals(p.getId()))
+                ? candidateActiveId
+                : profiles.get(0).getId();
+        llmConfigLoader.saveProfilesSettings(SemanticLlmProfilesSettings.builder()
+                .activeProfileId(activeProfileId)
+                .profiles(profiles)
+                .build());
+        result.getImported().put("semanticLlmProfiles", profiles.size());
+    }
+
+    private SemanticLlmProfilesSettings toExportLlmProfiles(SemanticLlmProfilesSettings settings,
+                                                            boolean includeSecrets) {
+        if (settings == null) {
+            return null;
+        }
+        if (includeSecrets) {
+            return settings;
+        }
+        List<SemanticLlmProfile> profiles = settings.getProfiles().stream()
+                .map(profile -> SemanticLlmProfile.builder()
+                        .id(profile.getId())
+                        .name(profile.getName())
+                        .enabled(profile.isEnabled())
+                        .provider(profile.getProvider())
+                        .apiKey(null)
+                        .model(profile.getModel())
+                        .baseUrl(profile.getBaseUrl())
+                        .timeoutSeconds(profile.getTimeoutSeconds())
+                        .build())
+                .collect(Collectors.toList());
+        return SemanticLlmProfilesSettings.builder()
+                .activeProfileId(settings.getActiveProfileId())
+                .profiles(profiles)
+                .build();
     }
 
     private void importWarningRules(List<WarningRule> rules, ConfigImportResult result) {
