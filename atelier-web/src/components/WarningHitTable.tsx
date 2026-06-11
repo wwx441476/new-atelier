@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { ExclamationCircleFilled } from '@ant-design/icons';
 import { Table, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -14,6 +15,28 @@ interface WarningHitTableProps {
   };
 }
 
+function isHitSourceCell(key: string, record: Record<string, unknown>): boolean {
+  if (!record._triggered) {
+    return false;
+  }
+  if (record[`_semanticCheck.${key}`] === true) {
+    return true;
+  }
+  const matchReason = record[`_matchReason.${key}`];
+  return matchReason != null && matchReason !== '';
+}
+
+function renderTriggerTag(value: unknown) {
+  return value ? (
+    <Tag color="error" className="warning-trigger-tag">
+      <ExclamationCircleFilled style={{ marginRight: 4 }} />
+      是
+    </Tag>
+  ) : (
+    <Tag color="default">否</Tag>
+  );
+}
+
 function buildColumns(headers: Record<string, string> | undefined, rows: Record<string, unknown>[]) {
   const rowKeys = rows.length ? Object.keys(rows[0]) : Object.keys(headers || {});
   return rowKeys.map((key) => ({
@@ -21,9 +44,20 @@ function buildColumns(headers: Record<string, string> | undefined, rows: Record<
     dataIndex: key,
     title: headers?.[key] || key,
     ellipsis: true,
-    render: (value: unknown) => {
-      if (key === '_triggered' || key === '_metricTriggered' || key === '_semanticTriggered') {
-        return value ? <Tag color="error">是</Tag> : <Tag>否</Tag>;
+    render: (value: unknown, record: Record<string, unknown>) => {
+      if (
+        key === '_triggered' ||
+        key === '_metricTriggered' ||
+        key === '_semanticTriggered' ||
+        key.startsWith('_semanticCheck.')
+      ) {
+        return renderTriggerTag(value);
+      }
+      if (key.startsWith('_matchReason.')) {
+        if (!value) {
+          return '';
+        }
+        return <span className="warning-cell-hit-reason">{String(value)}</span>;
       }
       if (value == null) {
         return '';
@@ -31,7 +65,11 @@ function buildColumns(headers: Record<string, string> | undefined, rows: Record<
       if (typeof value === 'object') {
         return JSON.stringify(value);
       }
-      return String(value);
+      const text = String(value);
+      if (isHitSourceCell(key, record)) {
+        return <span className="warning-cell-hit">{text}</span>;
+      }
+      return text;
     },
   }));
 }

@@ -30,4 +30,11 @@ public class KimiEndpointSupportTest {
                 "https://api.moonshot.cn/v1", "kimi", "kimi-k2.6");
         Assert.assertEquals("kimi-k2.6", model);
     }
+
+    @Test
+    public void shouldUseKimiK26ForCodingVisionWhenModelIsTextOnly() {
+        String model = KimiEndpointSupport.resolveVisionModel(
+                "https://api.kimi.com/coding", "kimi-coding", "kimi-for-coding");
+        Assert.assertEquals("kimi-k2.6", model);
+    }
 }

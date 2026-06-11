@@ -37,13 +37,31 @@ body {
 
 /* 预警命中行高亮 */
 .ant-table-wrapper tr.warning-row-triggered > td {
-  background-color: #fff1f0 !important;
+  background-color: #ffd4cf !important;
+  border-bottom: 1px solid #ff7875 !important;
 }
 
 .ant-table-wrapper tr.warning-row-triggered:hover > td {
-  background-color: #ffe7e3 !important;
+  background-color: #ffb8b0 !important;
 }
 
 .ant-table-wrapper tr.warning-row-triggered > td:first-child {
-  box-shadow: inset 3px 0 0 #ff4d4f;
+  box-shadow: inset 6px 0 0 #ff4d4f;
+}
+
+.warning-trigger-tag {
+  font-weight: 600;
+  font-size: 13px;
+  padding: 2px 10px;
+  border: 1px solid #ff4d4f;
+}
+
+.warning-cell-hit {
+  color: #a8071a;
+  font-weight: 600;
+}
+
+.warning-cell-hit-reason {
+  color: #cf1322;
+  font-weight: 500;
 }

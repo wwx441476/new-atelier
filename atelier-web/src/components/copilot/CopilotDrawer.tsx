@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { CloseOutlined, RedoOutlined, SendOutlined } from '@ant-design/icons';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  CloseOutlined,
+  PaperClipOutlined,
+  RedoOutlined,
+  SendOutlined,
+} from '@ant-design/icons';
+import { message } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { copilotApi } from '../../api/copilot';
 import type {
@@ -16,6 +22,11 @@ import CopilotWarningHitResultCard from './CopilotWarningHitResult';
 import CopilotWarningJobCard from './CopilotWarningJobCard';
 import CopilotWriteResult from './CopilotWriteResult';
 import { useCopilot } from './CopilotContext';
+import {
+  MAX_COPILOT_IMAGES,
+  isAcceptedImageFile,
+  readImageAsDataUrl,
+} from '../../utils/copilotImageUtils';
 import './CopilotDrawer.css';
 
 const SUGGESTIONS = [
@@ -31,6 +42,7 @@ interface DisplayMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  images?: string[];
   actions?: CopilotActionResult[];
   error?: boolean;
 }
@@ -38,7 +50,11 @@ interface DisplayMessage {
 function toApiMessages(history: DisplayMessage[]) {
   return history
     .filter((item) => item.id !== 'welcome')
-    .map((item) => ({ role: item.role, content: item.content }));
+    .map((item) => ({
+      role: item.role,
+      content: item.content,
+      images: item.images && item.images.length > 0 ? item.images : undefined,
+    }));
 }
 
 function isFailedTurn(messages: DisplayMessage[], userIndex: number) {
@@ -101,14 +117,39 @@ export default function CopilotDrawer() {
       id: 'welcome',
       role: 'assistant',
       content:
-        '你好，我是 **Atelier Copilot**。你可以用自然语言创建数据源、元数据、维度、指标和预警规则。\n\n先在右上角配置好 LLM，然后直接告诉我你想搭建什么。',
+        '你好，我是 **Atelier Copilot**。你可以用自然语言创建数据源、元数据、维度、指标和预警规则。\n\n先在右上角配置好 LLM，然后直接告诉我你想搭建什么。也可以粘贴或上传截图来说明界面问题。',
     },
   ]);
+  const [attachments, setAttachments] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imeComposingRef = useRef(false);
   const pageLabel = useMemo(() => resolvePageLabel(location.pathname), [location.pathname]);
 
-  const canSend = input.trim().length > 0 && !loading;
+  const canSend = (input.trim().length > 0 || attachments.length > 0) && !loading;
+
+  const addImageFiles = useCallback(async (files: FileList | File[]) => {
+    const fileArray = Array.from(files).filter((file) => isAcceptedImageFile(file));
+    if (fileArray.length === 0) {
+      message.warning('仅支持 PNG、JPEG、GIF、WebP 图片');
+      return;
+    }
+    const remaining = MAX_COPILOT_IMAGES - attachments.length;
+    if (remaining <= 0) {
+      message.warning(`最多附带 ${MAX_COPILOT_IMAGES} 张截图`);
+      return;
+    }
+    const selected = fileArray.slice(0, remaining);
+    try {
+      const dataUrls = await Promise.all(selected.map((file) => readImageAsDataUrl(file)));
+      setAttachments((prev) => [...prev, ...dataUrls].slice(0, MAX_COPILOT_IMAGES));
+      if (fileArray.length > selected.length) {
+        message.warning(`最多附带 ${MAX_COPILOT_IMAGES} 张截图，已忽略多余图片`);
+      }
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '读取图片失败');
+    }
+  }, [attachments.length]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -147,15 +188,25 @@ export default function CopilotDrawer() {
     }
   };
 
-  const sendMessage = async (text: string) => {
+  const sendMessage = async (text: string, images: string[] = attachments) => {
     const content = text.trim();
-    if (!content || loading) {
+    const pendingImages = images.length > 0 ? images : undefined;
+    if ((!content && !pendingImages) || loading) {
       return;
     }
 
-    const history = [...messages, { id: createId(), role: 'user' as const, content }];
+    const history = [
+      ...messages,
+      {
+        id: createId(),
+        role: 'user' as const,
+        content: content || '请根据截图理解我的意图并协助配置。',
+        images: pendingImages,
+      },
+    ];
     setMessages(history);
     setInput('');
+    setAttachments([]);
     await executeChat(history);
   };
 
@@ -231,7 +282,24 @@ export default function CopilotDrawer() {
               </div>
               <div className="copilot-message-bubble">
                 {message.role === 'user' ? (
-                  message.content
+                  <>
+                    {message.images && message.images.length > 0 && (
+                      <div className="copilot-message-images">
+                        {message.images.map((image, imageIndex) => (
+                          <a
+                            key={`${message.id}-image-${imageIndex}`}
+                            href={image}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="copilot-message-image-link"
+                          >
+                            <img src={image} alt={`截图 ${imageIndex + 1}`} className="copilot-message-image" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                    {message.content}
+                  </>
                 ) : (
                   <>
                     <CopilotMessageContent content={message.content} />
@@ -347,11 +415,59 @@ export default function CopilotDrawer() {
         )}
 
         <div className="copilot-composer-wrap">
-          <div className="copilot-composer">
+          <div
+            className="copilot-composer"
+            onDragOver={(event) => {
+              event.preventDefault();
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (event.dataTransfer.files.length > 0) {
+                addImageFiles(event.dataTransfer.files);
+              }
+            }}
+          >
+            {attachments.length > 0 && (
+              <div className="copilot-attachments">
+                {attachments.map((image, index) => (
+                  <div key={`attachment-${index}`} className="copilot-attachment">
+                    <img src={image} alt={`待发送截图 ${index + 1}`} />
+                    <button
+                      type="button"
+                      className="copilot-attachment-remove"
+                      aria-label="移除截图"
+                      onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== index))}
+                    >
+                      <CloseOutlined />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder="描述你想创建的配置，Shift+Enter 换行"
+              onPaste={(event) => {
+                const items = event.clipboardData?.items;
+                if (!items) {
+                  return;
+                }
+                const imageFiles: File[] = [];
+                for (const item of items) {
+                  if (item.kind === 'file' && item.type.startsWith('image/')) {
+                    const file = item.getAsFile();
+                    if (file) {
+                      imageFiles.push(file);
+                    }
+                  }
+                }
+                if (imageFiles.length === 0) {
+                  return;
+                }
+                event.preventDefault();
+                addImageFiles(imageFiles);
+              }}
               onCompositionStart={() => {
                 imeComposingRef.current = true;
               }}
@@ -374,17 +490,44 @@ export default function CopilotDrawer() {
                 sendMessage(input);
               }}
             />
-            <button
-              type="button"
-              className="copilot-send-btn"
-              aria-label="发送"
-              disabled={!canSend}
-              onClick={() => sendMessage(input)}
-            >
-              <SendOutlined />
-            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              hidden
+              onChange={(event) => {
+                if (event.target.files && event.target.files.length > 0) {
+                  addImageFiles(event.target.files);
+                }
+                event.target.value = '';
+              }}
+            />
+            <div className="copilot-composer-actions">
+              <button
+                type="button"
+                className="copilot-attach-btn"
+                aria-label="上传截图"
+                title="上传截图"
+                disabled={loading || attachments.length >= MAX_COPILOT_IMAGES}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <PaperClipOutlined />
+              </button>
+              <button
+                type="button"
+                className="copilot-send-btn"
+                aria-label="发送"
+                disabled={!canSend}
+                onClick={() => sendMessage(input)}
+              >
+                <SendOutlined />
+              </button>
+            </div>
           </div>
-          <div className="copilot-composer-hint">Enter 发送 · Shift+Enter 换行</div>
+          <div className="copilot-composer-hint">
+            Enter 发送 · Shift+Enter 换行 · 可粘贴或拖拽截图
+          </div>
         </div>
     </aside>
   );

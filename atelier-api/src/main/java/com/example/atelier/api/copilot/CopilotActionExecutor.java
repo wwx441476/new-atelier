@@ -55,6 +55,7 @@ public class CopilotActionExecutor {
     private final WarningRuleService warningRuleService;
     private final WarningRuleJobService warningRuleJobService;
     private final DatabaseBrowserService databaseBrowserService;
+    private final CopilotWarningRuleResolver warningRuleResolver;
 
     public CopilotActionExecutor(DataSourcePersistenceService dataSourceService,
                                  DataSourceRegistry dataSourceRegistry,
@@ -63,7 +64,8 @@ public class CopilotActionExecutor {
                                  MetricDefinitionService metricDefinitionService,
                                  WarningRuleService warningRuleService,
                                  WarningRuleJobService warningRuleJobService,
-                                 DatabaseBrowserService databaseBrowserService) {
+                                 DatabaseBrowserService databaseBrowserService,
+                                 CopilotWarningRuleResolver warningRuleResolver) {
         this.dataSourceService = dataSourceService;
         this.dataSourceRegistry = dataSourceRegistry;
         this.metadataService = metadataService;
@@ -72,6 +74,7 @@ public class CopilotActionExecutor {
         this.warningRuleService = warningRuleService;
         this.warningRuleJobService = warningRuleJobService;
         this.databaseBrowserService = databaseBrowserService;
+        this.warningRuleResolver = warningRuleResolver;
     }
 
     public CopilotActionResult execute(String tool, JsonNode params) {
@@ -306,21 +309,12 @@ public class CopilotActionExecutor {
     }
 
     private CopilotActionResult runWarningRule(JsonNode params) {
-        String ruleId = text(params, "ruleId");
-        String ruleCode = text(params, "ruleCode");
+        WarningRule rule = warningRuleResolver.resolve(params);
         int pageIndex = params.path("pageIndex").asInt(1);
         int pageSize = params.path("pageSize").asInt(20);
         boolean keywordOnly = !params.has("keywordOnly") || params.path("keywordOnly").asBoolean(true);
-        WarningRuleJob job;
-        if (ruleId != null && !ruleId.isEmpty()) {
-            job = warningRuleJobService.submitPreview(
-                    ruleId, pageIndex, pageSize, null, null, keywordOnly, WarningRuleJobSource.COPILOT);
-        } else if (ruleCode != null && !ruleCode.isEmpty()) {
-            job = warningRuleJobService.submitPreviewByCode(
-                    ruleCode, pageIndex, pageSize, keywordOnly, WarningRuleJobSource.COPILOT);
-        } else {
-            throw new AtelierException("run_warning_rule 需要 ruleId 或 ruleCode");
-        }
+        WarningRuleJob job = warningRuleJobService.submitPreview(
+                rule.getId(), pageIndex, pageSize, null, null, keywordOnly, WarningRuleJobSource.COPILOT);
         CopilotWarningJobResult payload = CopilotWarningJobResult.builder()
                 .jobId(job.getId())
                 .status(job.getStatus() != null ? job.getStatus().name() : "PENDING")

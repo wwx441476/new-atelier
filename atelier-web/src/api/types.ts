@@ -436,6 +436,8 @@ export interface CopilotWarningHitResult {
 export interface CopilotChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  /** data URL，如 data:image/png;base64,... */
+  images?: string[];
 }
 
 export interface CopilotChatRequest {

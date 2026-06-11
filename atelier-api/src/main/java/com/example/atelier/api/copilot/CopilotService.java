@@ -12,6 +12,7 @@ import com.example.atelier.warning.evaluator.LlmChatClient;
 import com.example.atelier.warning.service.SemanticLlmConfigLoader;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -48,28 +49,35 @@ public class CopilotService {
                     + "6. create_dimension_value: dimensionId,code,name,parentCode?,sort?\n"
                     + "7. create_metric: code,name,type(TABLE|SQL|COMPOSITE),datasourceId,tableCode,fieldCode,aggregation(SUM|COUNT|AVG|...),dimensions?[{dimensionCode,fieldCode}]\n"
                     + "8. create_warning_rule: code,name,ruleType(METRIC|SEMANTIC|COMPOSITE),metricCodes[],expression,warningLevel?,enabled?\n"
-                    + "9. run_warning_rule: ruleId?|ruleCode?,pageIndex?(默认1),pageSize?(默认20),keywordOnly?(默认true) — 异步执行预警预览，立即返回任务\n"
+                    + "9. run_warning_rule: ruleId?|ruleCode?|ruleName?,pageIndex?(默认1),pageSize?(默认20),keywordOnly?(默认true) — 异步执行预警预览，立即返回任务\n"
                     + "10. get_warning_job_result: jobId — 获取预警任务当前页的命中行（从 recentWarningJobs 或上轮 run_warning_rule 返回的 jobId 取值）\n"
                     + "11. execute_sql: datasourceId,sql,pageIndex?(默认1),pageSize?(默认20) — 只读 SELECT 查询\n"
                     + "12. execute_write_sql: datasourceId,sql — INSERT/UPDATE/DELETE/CREATE TABLE/ALTER TABLE/DROP TABLE\n"
                     + "13. create_physical_table: datasourceId,tableName,schema?,ifNotExists?,columns[{name,type,nullable?,primaryKey?}]\n"
-                    + "当用户要执行/预览/跑一下某条预警规则时，使用 run_warning_rule（从 warningRules 取 id 或 code），不要同步等待结果。\n"
+                    + "当用户要执行/预览/跑一下某条预警规则时，使用 run_warning_rule；params 必须包含 ruleId、ruleCode 或 ruleName 之一，"
+                    + "禁止留空。用户通过截图/名称指代规则时，从 warningRules 匹配 name 填入 ruleName（如「学杂费项目备注烟酒」），"
+                    + "或填入对应 code（如 tuition_remark_tobacco），不要同步等待结果。\n"
                     + "当用户要查看命中数据、展示命中的行、上面预警结果的具体数据时，使用 get_warning_job_result（jobId 从 recentWarningJobs 或对话中最近任务获取），不要编造数据。\n"
                     + "规则：引用已有对象时使用工作区中的 id/code；ID 用小写英文与数字；先解释计划再给出 actions；"
                     + "涉及数据写入或建表前提醒用户确认；仅规划模式下仍须写出完整 sql 或 columns；"
-                    + "用户只说需求时推断合理默认值；不要编造不存在的 datasourceId。";
+                    + "用户只说需求时推断合理默认值；不要编造不存在的 datasourceId。\n"
+                    + "用户可能附带界面截图，请结合截图中的页面、表格、按钮、字段和标注理解其意图后再回复。\n"
+                    + "从截图识别出预警规则后，reply 中须写出完整规则名称；执行 run_warning_rule 时 params 必须带 ruleName 或 ruleCode。";
 
     private final SemanticLlmConfigLoader llmConfigLoader;
     private final CopilotWorkspaceContextBuilder contextBuilder;
     private final CopilotActionExecutor actionExecutor;
+    private final CopilotWarningRuleResolver warningRuleResolver;
     private final LlmChatClient chatClient = new LlmChatClient();
 
     public CopilotService(SemanticLlmConfigLoader llmConfigLoader,
                           CopilotWorkspaceContextBuilder contextBuilder,
-                          CopilotActionExecutor actionExecutor) {
+                          CopilotActionExecutor actionExecutor,
+                          CopilotWarningRuleResolver warningRuleResolver) {
         this.llmConfigLoader = llmConfigLoader;
         this.contextBuilder = contextBuilder;
         this.actionExecutor = actionExecutor;
+        this.warningRuleResolver = warningRuleResolver;
     }
 
     public CopilotChatResponse chat(CopilotChatRequest request) {
@@ -82,17 +90,21 @@ public class CopilotService {
         }
 
         String workspaceSummary = contextBuilder.buildSummary();
-        String userPrompt = buildUserPrompt(request, workspaceSummary);
-        log.info("Copilot 请求: page={}, messages={}", request.getCurrentPage(), request.getMessages().size());
+        List<String> latestImages = extractLatestUserImages(request.getMessages());
+        validateUserImages(request.getMessages(), latestImages);
+        List<String> images = extractConversationImages(request.getMessages());
+        String userPrompt = buildUserPrompt(request, workspaceSummary, images);
+        log.info("Copilot 请求: page={}, messages={}, images={}",
+                request.getCurrentPage(), request.getMessages().size(), images.size());
 
-        String content = chatClient.chat(llmConfig, SYSTEM_PROMPT, userPrompt, LlmChatClient.AGENT_MAX_TOKENS);
+        String content = chatClient.chat(llmConfig, SYSTEM_PROMPT, userPrompt, images, LlmChatClient.AGENT_MAX_TOKENS);
         ParsedPlan plan = parsePlan(content);
 
         List<CopilotActionResult> actionResults = new ArrayList<>();
         if (plan.actions != null) {
             for (JsonNode action : plan.actions) {
                 String tool = action.path("tool").asText("");
-                JsonNode params = action.path("params");
+                JsonNode params = enrichActionParams(tool, action.path("params"), request);
                 if (request.isDryRun()) {
                     actionResults.add(buildPlannedAction(tool, params));
                 } else {
@@ -117,7 +129,7 @@ public class CopilotService {
                 .build();
     }
 
-    private String buildUserPrompt(CopilotChatRequest request, String workspaceSummary) {
+    private String buildUserPrompt(CopilotChatRequest request, String workspaceSummary, List<String> images) {
         StringBuilder builder = new StringBuilder();
         builder.append("【当前页面】").append(request.getCurrentPage() != null ? request.getCurrentPage() : "未知")
                 .append('\n');
@@ -129,9 +141,94 @@ public class CopilotService {
         builder.append("【对话历史】\n");
         for (CopilotChatMessage message : request.getMessages()) {
             builder.append(message.getRole()).append(": ").append(message.getContent()).append('\n');
+            if (message.getImages() != null && !message.getImages().isEmpty()) {
+                builder.append("  [附带 ").append(message.getImages().size()).append(" 张截图]\n");
+            }
+        }
+        if (!images.isEmpty()) {
+            builder.append("\n【截图】本条消息已附带 ").append(images.size())
+                    .append(" 张界面截图（与文字同条 multimodal 输入），请直接识读截图内容后回复。\n");
         }
         builder.append("\n请根据最后一条 user 消息回复。");
         return builder.toString();
+    }
+
+    private JsonNode enrichActionParams(String tool, JsonNode params, CopilotChatRequest request) {
+        if (tool == null || !"run_warning_rule".equalsIgnoreCase(tool.trim())) {
+            return params;
+        }
+        if (warningRuleResolver.hasIdentifier(params)) {
+            return params;
+        }
+        ObjectNode enriched = params != null && params.isObject()
+                ? ((ObjectNode) params).deepCopy()
+                : MAPPER.createObjectNode();
+        enriched.put("_conversationHint", warningRuleResolver.buildConversationHint(request.getMessages()));
+        return enriched;
+    }
+
+    private void validateUserImages(List<CopilotChatMessage> messages, List<String> extracted) {
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            CopilotChatMessage message = messages.get(i);
+            if (!"user".equalsIgnoreCase(message.getRole())) {
+                continue;
+            }
+            if (message.getImages() != null && !message.getImages().isEmpty() && extracted.isEmpty()) {
+                throw new AtelierException("截图未能识别，请确认图片为 PNG/JPEG/GIF/WebP 后重试");
+            }
+            return;
+        }
+    }
+
+    private List<String> extractLatestUserImages(List<CopilotChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return Collections.emptyList();
+        }
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            CopilotChatMessage message = messages.get(i);
+            if (!"user".equalsIgnoreCase(message.getRole())) {
+                continue;
+            }
+            if (message.getImages() == null || message.getImages().isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<String> images = new ArrayList<>();
+            for (String image : message.getImages()) {
+                if (image != null && image.startsWith("data:image/")) {
+                    images.add(image);
+                }
+            }
+            if (images.size() > 4) {
+                throw new AtelierException("单条消息最多附带 4 张截图");
+            }
+            return images;
+        }
+        return Collections.emptyList();
+    }
+
+    /** 携带对话中最近的用户截图，便于「执行上述」类追问仍能看到先前界面。 */
+    private List<String> extractConversationImages(List<CopilotChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> images = new ArrayList<>();
+        for (CopilotChatMessage message : messages) {
+            if (!"user".equalsIgnoreCase(message.getRole()) || message.getImages() == null) {
+                continue;
+            }
+            for (String image : message.getImages()) {
+                if (image != null && image.startsWith("data:image/")) {
+                    images.add(image);
+                }
+            }
+        }
+        if (images.size() > 4) {
+            return images.subList(images.size() - 4, images.size());
+        }
+        return images;
     }
 
     private CopilotActionResult buildPlannedAction(String tool, JsonNode params) {
@@ -169,7 +266,8 @@ public class CopilotService {
             case "create_warning_rule":
                 return "计划创建预警规则 " + textParam(params, "code", "") + "（仅规划，未执行）";
             case "run_warning_rule":
-                String ruleLabel = textParam(params, "ruleCode", textParam(params, "ruleId", ""));
+                String ruleLabel = textParam(params, "ruleName",
+                        textParam(params, "ruleCode", textParam(params, "ruleId", "")));
                 return "计划异步执行预警规则 " + ruleLabel + "（仅规划，未执行）";
             case "get_warning_job_result":
                 return "计划获取预警任务 " + textParam(params, "jobId", "") + " 的命中数据（仅规划，未执行）";
@@ -278,21 +376,51 @@ public class CopilotService {
     }
 
     private ParsedPlan parsePlan(String content) {
+        if (content == null || content.trim().isEmpty()) {
+            return new ParsedPlan("已完成。", new ArrayList<JsonNode>());
+        }
+        String trimmed = unwrapMarkdownCodeFence(content.trim());
         try {
-            JsonNode root = MAPPER.readTree(LlmChatClient.extractJsonObject(content));
-            String reply = root.path("reply").asText(content);
-            JsonNode actionsNode = root.path("actions");
-            List<JsonNode> actions = new ArrayList<>();
-            if (actionsNode.isArray()) {
-                for (JsonNode node : actionsNode) {
-                    actions.add(node);
-                }
-            }
-            return new ParsedPlan(reply, actions);
+            return buildParsedPlan(MAPPER.readTree(trimmed));
+        } catch (Exception ignored) {
+            // try extracting JSON object from mixed content
+        }
+        try {
+            return buildParsedPlan(MAPPER.readTree(LlmChatClient.extractJsonObject(trimmed)));
         } catch (Exception e) {
             log.warn("Copilot 响应解析失败，返回原文: {}", e.getMessage());
             return new ParsedPlan(content, new ArrayList<JsonNode>());
         }
+    }
+
+    private ParsedPlan buildParsedPlan(JsonNode root) {
+        String reply = root.path("reply").asText("").trim();
+        if (reply.isEmpty()) {
+            throw new IllegalArgumentException("reply 为空");
+        }
+        JsonNode actionsNode = root.path("actions");
+        List<JsonNode> actions = new ArrayList<>();
+        if (actionsNode.isArray()) {
+            for (JsonNode node : actionsNode) {
+                actions.add(node);
+            }
+        }
+        return new ParsedPlan(reply, actions);
+    }
+
+    private String unwrapMarkdownCodeFence(String content) {
+        if (!content.startsWith("```")) {
+            return content;
+        }
+        int firstLineEnd = content.indexOf('\n');
+        if (firstLineEnd < 0) {
+            return content;
+        }
+        String body = content.substring(firstLineEnd + 1);
+        if (body.endsWith("```")) {
+            body = body.substring(0, body.length() - 3);
+        }
+        return body.trim();
     }
 
     private static final class ParsedPlan {

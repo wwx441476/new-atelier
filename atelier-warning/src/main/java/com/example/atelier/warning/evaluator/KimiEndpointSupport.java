@@ -80,6 +80,29 @@ public final class KimiEndpointSupport {
         return base + "/chat/completions";
     }
 
+    /**
+     * 截图识读场景下的模型：Kimi Coding 的 kimi-for-coding 仅文本，需切到支持多模态的模型。
+     */
+    public static String resolveVisionModel(String baseUrl, String provider, String model) {
+        String trimmed = model != null ? model.trim() : "";
+        if (isKimiCodingEndpoint(baseUrl) || "kimi-coding".equalsIgnoreCase(provider)) {
+            if (trimmed.isEmpty() || CODING_OPENAI_MODEL.equals(trimmed)) {
+                return CODING_ANTHROPIC_MODEL;
+            }
+            return trimmed;
+        }
+        if (SemanticLlmProviders.OPENAI.equalsIgnoreCase(provider)) {
+            return trimmed.isEmpty() ? "gpt-4o" : trimmed;
+        }
+        if (SemanticLlmProviders.DASHSCOPE.equalsIgnoreCase(provider)) {
+            return trimmed.isEmpty() ? "qwen-vl-max" : trimmed;
+        }
+        if (SemanticLlmProviders.KIMI.equalsIgnoreCase(provider)) {
+            return trimmed.isEmpty() ? OPEN_PLATFORM_MODEL : trimmed;
+        }
+        return trimmed.isEmpty() ? "gpt-4o" : trimmed;
+    }
+
     public static String resolveModel(String baseUrl, String provider, String model) {
         String trimmed = model != null ? model.trim() : "";
         if (useAnthropicProtocol(baseUrl, provider)) {

@@ -15,4 +15,7 @@ public class CopilotChatMessage {
     private String role;
 
     private String content;
+
+    /** 截图 data URL，如 data:image/png;base64,... */
+    private java.util.List<String> images;
 }

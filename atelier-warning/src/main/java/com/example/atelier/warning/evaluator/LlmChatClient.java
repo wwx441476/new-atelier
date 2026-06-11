@@ -17,6 +17,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -37,20 +38,53 @@ public class LlmChatClient {
     }
 
     public String chat(SemanticLlmConfig config, String systemPrompt, String userPrompt, int maxTokens) {
+        return chat(config, systemPrompt, userPrompt, null, maxTokens);
+    }
+
+    public String chat(SemanticLlmConfig config, String systemPrompt, String userPrompt,
+            List<String> imageDataUrls, int maxTokens) {
         if (config == null || config.getApiKey() == null || config.getApiKey().trim().isEmpty()) {
             throw new AtelierException("LLM API Key 未配置");
         }
         int resolvedMaxTokens = maxTokens > 0 ? maxTokens : SEMANTIC_MAX_TOKENS;
+        List<String> images = imageDataUrls != null ? imageDataUrls : Collections.emptyList();
         return LlmConcurrencyLimiter.withPermit(() -> {
-            SemanticLlmProviders.applyProviderDefaults(config);
-            if (KimiEndpointSupport.useAnthropicProtocol(config.getBaseUrl(), config.getProvider())) {
-                return chatAnthropic(config, systemPrompt, userPrompt, resolvedMaxTokens);
+            SemanticLlmConfig resolved = config;
+            boolean hasImages = !images.isEmpty();
+            if (hasImages) {
+                resolved = buildVisionConfig(config);
+                log.info("LLM multimodal 请求: images={}, model={}, baseUrl={}",
+                        images.size(), resolved.getModel(), resolved.getBaseUrl());
             }
-            return chatOpenAi(config, systemPrompt, userPrompt, resolvedMaxTokens);
+            boolean anthropic = !hasImages
+                    && KimiEndpointSupport.useAnthropicProtocol(resolved.getBaseUrl(), resolved.getProvider());
+            if (anthropic) {
+                return chatAnthropic(resolved, systemPrompt, userPrompt, images, resolvedMaxTokens);
+            }
+            return chatOpenAi(resolved, systemPrompt, userPrompt, images, resolvedMaxTokens);
         });
     }
 
-    private String chatAnthropic(SemanticLlmConfig config, String systemPrompt, String userPrompt, int maxTokens) {
+    private SemanticLlmConfig buildVisionConfig(SemanticLlmConfig config) {
+        SemanticLlmConfig copy = SemanticLlmConfig.builder()
+                .enabled(config.isEnabled())
+                .provider(config.getProvider())
+                .apiKey(config.getApiKey())
+                .baseUrl(config.getBaseUrl())
+                .model(config.getModel())
+                .timeoutSeconds(config.getTimeoutSeconds())
+                .build();
+        SemanticLlmProviders.applyProviderDefaults(copy);
+        if (KimiEndpointSupport.useAnthropicProtocol(copy.getBaseUrl(), copy.getProvider())) {
+            copy.setBaseUrl(KimiEndpointSupport.CODING_OPENAI_BASE_URL);
+        }
+        copy.setModel(KimiEndpointSupport.resolveVisionModel(
+                copy.getBaseUrl(), copy.getProvider(), copy.getModel()));
+        return copy;
+    }
+
+    private String chatAnthropic(SemanticLlmConfig config, String systemPrompt, String userPrompt,
+            List<String> imageDataUrls, int maxTokens) {
         String model = KimiEndpointSupport.resolveModel(config.getBaseUrl(), config.getProvider(), config.getModel());
         int timeout = timeoutSeconds(config);
         String endpoint = KimiEndpointSupport.buildAnthropicMessagesUrl(config.getBaseUrl());
@@ -68,7 +102,21 @@ public class LlmChatClient {
             ArrayNode messages = body.putArray("messages");
             ObjectNode user = messages.addObject();
             user.put("role", "user");
-            user.put("content", userPrompt);
+            if (imageDataUrls != null && !imageDataUrls.isEmpty()) {
+                ArrayNode content = user.putArray("content");
+                for (String dataUrl : imageDataUrls) {
+                    ParsedDataUrl parsed = parseDataUrl(dataUrl);
+                    ObjectNode image = content.addObject();
+                    image.put("type", "image");
+                    ObjectNode source = image.putObject("source");
+                    source.put("type", "base64");
+                    source.put("media_type", parsed.mediaType);
+                    source.put("data", parsed.base64Data);
+                }
+                content.addObject().put("type", "text").put("text", userPrompt);
+            } else {
+                user.put("content", userPrompt);
+            }
 
             byte[] payload = MAPPER.writeValueAsString(body).getBytes(StandardCharsets.UTF_8);
             connection = openConnection(endpoint, timeout);
@@ -101,7 +149,8 @@ public class LlmChatClient {
         }
     }
 
-    private String chatOpenAi(SemanticLlmConfig config, String systemPrompt, String userPrompt, int maxTokens) {
+    private String chatOpenAi(SemanticLlmConfig config, String systemPrompt, String userPrompt,
+            List<String> imageDataUrls, int maxTokens) {
         String baseUrl = KimiEndpointSupport.normalizeOpenAiBaseUrl(config.getBaseUrl(), config.getProvider());
         String model = KimiEndpointSupport.resolveModel(baseUrl, config.getProvider(), config.getModel());
         int timeout = timeoutSeconds(config);
@@ -122,7 +171,19 @@ public class LlmChatClient {
             }
             ObjectNode user = messages.addObject();
             user.put("role", "user");
-            user.put("content", userPrompt);
+            if (imageDataUrls != null && !imageDataUrls.isEmpty()) {
+                ArrayNode content = user.putArray("content");
+                for (String dataUrl : imageDataUrls) {
+                    ObjectNode image = content.addObject();
+                    image.put("type", "image_url");
+                    ObjectNode imageUrl = image.putObject("image_url");
+                    imageUrl.put("url", dataUrl);
+                    imageUrl.put("detail", "high");
+                }
+                content.addObject().put("type", "text").put("text", userPrompt);
+            } else {
+                user.put("content", userPrompt);
+            }
 
             byte[] payload = MAPPER.writeValueAsString(body).getBytes(StandardCharsets.UTF_8);
             connection = openConnection(endpoint, timeout);
@@ -229,6 +290,36 @@ public class LlmChatClient {
             return "";
         }
         return text.length() <= max ? text : text.substring(0, max) + "...";
+    }
+
+    private static ParsedDataUrl parseDataUrl(String dataUrl) {
+        if (dataUrl == null || !dataUrl.startsWith("data:image/")) {
+            throw new AtelierException("无效的图片格式");
+        }
+        int comma = dataUrl.indexOf(',');
+        if (comma < 0) {
+            throw new AtelierException("无效的图片 data URL");
+        }
+        String header = dataUrl.substring(5, comma);
+        if (!header.endsWith(";base64")) {
+            throw new AtelierException("仅支持 base64 编码的图片");
+        }
+        String mediaType = header.substring(0, header.length() - ";base64".length());
+        String base64Data = dataUrl.substring(comma + 1).trim();
+        if (base64Data.isEmpty()) {
+            throw new AtelierException("图片内容为空");
+        }
+        return new ParsedDataUrl(mediaType, base64Data);
+    }
+
+    private static final class ParsedDataUrl {
+        private final String mediaType;
+        private final String base64Data;
+
+        private ParsedDataUrl(String mediaType, String base64Data) {
+            this.mediaType = mediaType;
+            this.base64Data = base64Data;
+        }
     }
 
     public static String extractJsonObject(String content) {
