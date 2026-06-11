@@ -37,7 +37,7 @@ final class SemanticPreviewSupport {
             enriched.put(LLM_INVOKED_PREFIX + field, result.isLlmInvoked());
         }
         SemanticMatchResult summary = summarize(groupResult);
-        enriched.put(WarningRulePreviewService.MATCH_REASON_FIELD, summary.getReason());
+        enriched.put(WarningRulePreviewService.MATCH_REASON_FIELD, WarningMatchReasonBuilder.buildSemanticSummaryReason(groupResult));
         enriched.put(WarningRulePreviewService.MATCH_LAYER_FIELD, summary.getLayer());
         enriched.put(WarningRulePreviewService.LLM_INVOKED_FIELD, summary.isLlmInvoked());
     }
@@ -52,8 +52,8 @@ final class SemanticPreviewSupport {
             headers.put(MATCH_LAYER_PREFIX + field, "层·" + label);
             headers.put(LLM_INVOKED_PREFIX + field, "LLM·" + label);
         }
-        headers.put(WarningRulePreviewService.MATCH_REASON_FIELD, "语义原因");
-        headers.put(WarningRulePreviewService.MATCH_LAYER_FIELD, "语义层");
+        headers.put(WarningRulePreviewService.MATCH_REASON_FIELD, "命中原因");
+        headers.put(WarningRulePreviewService.MATCH_LAYER_FIELD, "判定层");
         headers.put(WarningRulePreviewService.LLM_INVOKED_FIELD, "LLM调用");
     }
 

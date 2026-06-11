@@ -118,6 +118,7 @@ export default function WarningJobResultModal({
             rows={displayRows}
             headers={result.headers}
             loading={loading || pageLoading}
+            keywordOnly={job?.params?.keywordOnly ?? true}
             pagination={
               matchedOnly
                 ? false

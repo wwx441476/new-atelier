@@ -46,6 +46,14 @@ import {
 } from '../utils/queryFilters';
 import { createDefaultSemanticGroup, normalizeSemanticConfig } from '../utils/semanticRuleForm';
 import { subscribeWarningJob } from '../utils/warningJobEvents';
+import {
+  buildWarningPreviewColumnKeys,
+  getWarningPreviewHeader,
+  isWarningDataColumn,
+  isWarningLlmColumn,
+  isWarningReasonColumn,
+  isWarningTriggerColumn,
+} from '../utils/warningPreviewTable';
 
 export default function WarningRulePage() {
   const [loading, setLoading] = useState(false);
@@ -338,79 +346,57 @@ export default function WarningRulePage() {
       ? Object.keys(previewResult.rows[0])
       : Object.keys(previewResult?.headers || {});
     const metricCodes = previewRule?.metricCodes || [];
-    return rowKeys.filter(
-      (key) =>
-        !['_triggered', '_matchReason', '_matchLayer', '_llmInvoked', '_metricTriggered', '_semanticTriggered'].includes(
-          key,
-        ) &&
-        !key.startsWith('_semanticCheck.') &&
-        !key.startsWith('_matchReason.') &&
-        !key.startsWith('_matchLayer.') &&
-        !key.startsWith('_llmInvoked.') &&
-        !metricCodes.includes(key),
-    );
+    return rowKeys.filter((key) => isWarningDataColumn(key, metricCodes));
   }, [previewResult, previewRule]);
 
   const previewColumns: ColumnsType<Record<string, unknown>> = useMemo(() => {
-    const rowKeys = previewResult?.rows?.length
-      ? Object.keys(previewResult.rows[0])
+    const rows = previewResult?.rows || [];
+    const rowKeys = rows.length
+      ? Object.keys(rows[0])
       : Object.keys(previewResult?.headers || {});
     const metricCodes = previewRule?.metricCodes || [];
-    const dimensionKeys = previewDimensionKeys;
-    const semanticDetailKeys = rowKeys.filter(
-      (key) =>
-        key.startsWith('_semanticCheck.') ||
-        key.startsWith('_matchReason.') ||
-        key.startsWith('_matchLayer.') ||
-        key.startsWith('_llmInvoked.'),
-    );
-    const extraKeys = [
-      '_metricTriggered',
-      '_semanticTriggered',
-      '_matchReason',
-      '_matchLayer',
-      '_llmInvoked',
-      '_triggered',
-    ];
-    const orderedKeys = [
-      ...dimensionKeys,
-      ...metricCodes.filter((code) => rowKeys.includes(code)),
-      ...semanticDetailKeys,
-      ...extraKeys.filter((key) => rowKeys.includes(key)),
-    ];
-    const dimensionKeySet = new Set(dimensionKeys);
+    const orderedKeys = buildWarningPreviewColumnKeys(rowKeys, {
+      ruleType: previewRule?.ruleType,
+      metricCodes,
+      keywordOnly: previewKeywordOnly,
+      rows,
+    });
+    const dataKeySet = new Set(rowKeys.filter((key) => isWarningDataColumn(key, metricCodes)));
     return orderedKeys.map((key) => ({
-      title: previewResult?.headers?.[key] || key,
+      title: getWarningPreviewHeader(key, previewResult?.headers),
       dataIndex: key,
-      width: key === '_triggered' ? 100 : undefined,
+      width: key === '_triggered' ? 96 : undefined,
       ellipsis: key !== '_triggered',
       render: (value: unknown) => {
-        if (
-          key === '_triggered' ||
-          key === '_metricTriggered' ||
-          key === '_semanticTriggered' ||
-          key.startsWith('_semanticCheck.')
-        ) {
+        if (isWarningTriggerColumn(key)) {
           return value ? (
             <Tag color="error">是</Tag>
           ) : (
             <Tag color="default">否</Tag>
           );
         }
-        if (key === '_llmInvoked' || key.startsWith('_llmInvoked.')) {
+        if (isWarningLlmColumn(key)) {
           return value ? (
             <Tag color="processing">是</Tag>
           ) : (
             <Tag color="default">否</Tag>
           );
         }
-        if (dimensionKeySet.has(key)) {
+        if (isWarningReasonColumn(key) && value) {
+          return <span className="warning-cell-hit-reason">{String(value)}</span>;
+        }
+        if (dataKeySet.has(key)) {
           return formatDimensionDisplayValue(key, value, dimensionValueNames);
         }
-        return value != null ? String(value) : '-';
+        return value != null && value !== '' ? String(value) : '-';
       },
     }));
-  }, [previewResult, previewRule, previewDimensionKeys, dimensionValueNames]);
+  }, [
+    previewResult,
+    previewRule,
+    previewKeywordOnly,
+    dimensionValueNames,
+  ]);
 
   const columns: ColumnsType<WarningRule> = [
     { title: '名称', dataIndex: 'name', width: 160 },

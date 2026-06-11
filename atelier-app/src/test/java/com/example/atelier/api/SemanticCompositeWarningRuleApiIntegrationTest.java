@@ -265,6 +265,9 @@ public class SemanticCompositeWarningRuleApiIntegrationTest {
         assertEquals(true, moutaiRow.get("_semanticTriggered"));
         assertEquals(true, moutaiRow.get("_triggered"));
         assertEquals("keyword", moutaiRow.get("_matchLayer"));
+        String matchReason = String.valueOf(moutaiRow.get("_matchReason"));
+        assertTrue(matchReason.contains("profit < 500"));
+        assertTrue(matchReason.contains("茅台"));
     }
 
     @Test
@@ -275,6 +278,7 @@ public class SemanticCompositeWarningRuleApiIntegrationTest {
         assertEquals(true, row.get("_metricTriggered"));
         assertEquals(false, row.get("_semanticTriggered"));
         assertEquals(false, row.get("_triggered"));
+        assertTrue(String.valueOf(row.get("_matchReason")).contains("profit < 500"));
     }
 
     @Test

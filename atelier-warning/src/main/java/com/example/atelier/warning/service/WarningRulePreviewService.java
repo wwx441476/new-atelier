@@ -93,10 +93,12 @@ public class WarningRulePreviewService {
         long matched = 0;
         for (Map<String, Object> row : queryResult.getRows()) {
             Map<String, Object> enriched = new LinkedHashMap<>(row);
-            boolean triggered = expressionEvaluator.evaluate(rule.getExpression(),
-                    buildMetricContext(row, rule.getMetricCodes()));
+            Map<String, Object> metricContext = buildMetricContext(row, rule.getMetricCodes());
+            boolean triggered = expressionEvaluator.evaluate(rule.getExpression(), metricContext);
             enriched.put(TRIGGERED_FIELD, triggered);
             if (triggered) {
+                enriched.put(MATCH_REASON_FIELD,
+                        WarningMatchReasonBuilder.buildMetricReason(rule.getExpression(), metricContext));
                 matched++;
             }
             previewRows.add(enriched);
@@ -104,6 +106,7 @@ public class WarningRulePreviewService {
 
         Map<String, String> headers = buildHeaders(queryResult.getHeaders());
         headers.put(TRIGGERED_FIELD, "是否触发");
+        headers.put(MATCH_REASON_FIELD, "命中原因");
 
         return buildResult(rule, rule.getExpression(), sql, queryResult.getTotal(), matched, previewRows, headers);
     }
@@ -179,8 +182,8 @@ public class WarningRulePreviewService {
             Map<String, Object> enriched = new LinkedHashMap<>(row);
             boolean triggered;
             if (composite) {
-                boolean metricTriggered = expressionEvaluator.evaluate(compositeRule.getExpression(),
-                        buildMetricContext(row, compositeRule.getMetricCodes()));
+                Map<String, Object> metricContext = buildMetricContext(row, compositeRule.getMetricCodes());
+                boolean metricTriggered = expressionEvaluator.evaluate(compositeRule.getExpression(), metricContext);
                 SemanticGroupMatchResult groupResult;
                 if (andLogic && !metricTriggered) {
                     groupResult = emptySemanticResult();
@@ -195,6 +198,12 @@ public class WarningRulePreviewService {
                 enriched.put(SEMANTIC_TRIGGERED_FIELD, semanticTriggered);
                 enriched.put(TRIGGERED_FIELD, triggered);
                 SemanticPreviewSupport.enrichRow(enriched, groupResult);
+                WarningMatchReasonBuilder.applyCompositeMatchReason(
+                        enriched,
+                        metricTriggered,
+                        compositeRule.getExpression(),
+                        metricContext,
+                        groupResult);
             } else {
                 SemanticGroupMatchResult groupResult =
                         semanticRuleEvaluator.evaluateRow(row, semantic, evaluationOptions);

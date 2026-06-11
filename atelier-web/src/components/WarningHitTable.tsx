@@ -2,11 +2,23 @@ import { useMemo } from 'react';
 import { ExclamationCircleFilled } from '@ant-design/icons';
 import { Table, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import type { WarningRuleType } from '../api/types';
+import {
+  buildWarningPreviewColumnKeys,
+  getWarningPreviewHeader,
+  inferWarningRuleType,
+  isWarningLlmColumn,
+  isWarningReasonColumn,
+  isWarningTriggerColumn,
+} from '../utils/warningPreviewTable';
 
 interface WarningHitTableProps {
   rows: Record<string, unknown>[];
   headers?: Record<string, string>;
   loading?: boolean;
+  ruleType?: WarningRuleType | string;
+  keywordOnly?: boolean;
+  metricCodes?: string[];
   pagination?: false | {
     current: number;
     pageSize: number;
@@ -37,30 +49,48 @@ function renderTriggerTag(value: unknown) {
   );
 }
 
-function buildColumns(headers: Record<string, string> | undefined, rows: Record<string, unknown>[]) {
+function buildColumns(
+  headers: Record<string, string> | undefined,
+  rows: Record<string, unknown>[],
+  options: {
+    ruleType?: WarningRuleType | string;
+    keywordOnly?: boolean;
+    metricCodes?: string[];
+  },
+) {
   const rowKeys = rows.length ? Object.keys(rows[0]) : Object.keys(headers || {});
-  return rowKeys.map((key) => ({
+  const orderedKeys = buildWarningPreviewColumnKeys(rowKeys, {
+    ruleType: options.ruleType || inferWarningRuleType(rowKeys),
+    metricCodes: options.metricCodes,
+    keywordOnly: options.keywordOnly,
+    rows,
+  });
+
+  return orderedKeys.map((key) => ({
     key,
     dataIndex: key,
-    title: headers?.[key] || key,
-    ellipsis: true,
+    title: getWarningPreviewHeader(key, headers),
+    width: key === '_triggered' ? 96 : undefined,
+    ellipsis: key !== '_triggered',
     render: (value: unknown, record: Record<string, unknown>) => {
-      if (
-        key === '_triggered' ||
-        key === '_metricTriggered' ||
-        key === '_semanticTriggered' ||
-        key.startsWith('_semanticCheck.')
-      ) {
+      if (isWarningTriggerColumn(key)) {
         return renderTriggerTag(value);
       }
-      if (key.startsWith('_matchReason.')) {
+      if (isWarningLlmColumn(key)) {
+        return value ? (
+          <Tag color="processing">是</Tag>
+        ) : (
+          <Tag color="default">否</Tag>
+        );
+      }
+      if (isWarningReasonColumn(key)) {
         if (!value) {
-          return '';
+          return '-';
         }
         return <span className="warning-cell-hit-reason">{String(value)}</span>;
       }
-      if (value == null) {
-        return '';
+      if (value == null || value === '') {
+        return '-';
       }
       if (typeof value === 'object') {
         return JSON.stringify(value);
@@ -74,10 +104,18 @@ function buildColumns(headers: Record<string, string> | undefined, rows: Record<
   }));
 }
 
-export default function WarningHitTable({ rows, headers, loading = false, pagination = false }: WarningHitTableProps) {
+export default function WarningHitTable({
+  rows,
+  headers,
+  loading = false,
+  ruleType,
+  keywordOnly,
+  metricCodes,
+  pagination = false,
+}: WarningHitTableProps) {
   const columns: ColumnsType<Record<string, unknown>> = useMemo(
-    () => buildColumns(headers, rows),
-    [headers, rows],
+    () => buildColumns(headers, rows, { ruleType, keywordOnly, metricCodes }),
+    [headers, rows, ruleType, keywordOnly, metricCodes],
   );
 
   return (
