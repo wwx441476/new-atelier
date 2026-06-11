@@ -499,6 +499,15 @@ export interface CopilotChatResponse {
   workspaceSummary?: string;
 }
 
+export interface CopilotTranscribeRequest {
+  audioDataUrl: string;
+  llmProfileId?: string;
+}
+
+export interface CopilotTranscribeResponse {
+  text: string;
+}
+
 export interface ConfigDataSource {
   id: string;
   name: string;

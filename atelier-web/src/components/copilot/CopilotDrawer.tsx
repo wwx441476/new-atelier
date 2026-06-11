@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AudioOutlined,
   CloseOutlined,
   DownOutlined,
   PaperClipOutlined,
@@ -31,7 +32,10 @@ import {
   readImageAsDataUrl,
 } from '../../utils/copilotImageUtils';
 import { readCopilotLlmProfileId, writeCopilotLlmProfileId } from '../../utils/copilotLlmProfile';
+import { getVoiceInputShortcutLabel } from '../../utils/copilotVoiceInput';
 import { SEMANTIC_LLM_UPDATED_EVENT } from '../../utils/semanticLlmEvents';
+import CopilotVoiceWaveform from './CopilotVoiceWaveform';
+import { useCopilotVoiceInput } from './useCopilotVoiceInput';
 import './CopilotDrawer.css';
 
 const SUGGESTIONS = [
@@ -134,6 +138,21 @@ export default function CopilotDrawer() {
   const pageLabel = useMemo(() => resolvePageLabel(location.pathname), [location.pathname]);
 
   const canSend = (input.trim().length > 0 || attachments.length > 0) && !loading;
+  const voiceShortcut = useMemo(() => getVoiceInputShortcutLabel(), []);
+
+  const {
+    supported: voiceSupported,
+    listening: voiceListening,
+    transcribing: voiceTranscribing,
+    audioStream: voiceAudioStream,
+    toggle: toggleVoiceInput,
+    stop: stopVoiceInput,
+  } = useCopilotVoiceInput({
+    enabled: open && !loading,
+    value: input,
+    onChange: setInput,
+    llmProfileId: selectedLlmProfileId,
+  });
 
   const loadLlmProfiles = useCallback(async () => {
     const data = await settingsApi.getLlmProfiles();
@@ -197,6 +216,27 @@ export default function CopilotDrawer() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading, open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.code !== 'Space') {
+        return;
+      }
+      event.preventDefault();
+      toggleVoiceInput();
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [open, toggleVoiceInput]);
+
+  useEffect(() => {
+    if (!open) {
+      stopVoiceInput();
+    }
+  }, [open, stopVoiceInput]);
 
   const executeChat = async (history: DisplayMessage[]) => {
     setLoading(true);
@@ -460,7 +500,7 @@ export default function CopilotDrawer() {
 
         <div className="copilot-composer-wrap">
           <div
-            className="copilot-composer"
+            className={`copilot-composer${voiceListening || voiceTranscribing ? ' listening' : ''}`}
             onDragOver={(event) => {
               event.preventDefault();
             }}
@@ -491,7 +531,13 @@ export default function CopilotDrawer() {
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="描述你想创建的配置，Shift+Enter 换行"
+              placeholder={
+                voiceTranscribing
+                  ? '正在识别语音…'
+                  : voiceListening
+                    ? '正在聆听，说完后点击停止'
+                    : '描述你想创建的配置，Shift+Enter 换行'
+              }
               onPaste={(event) => {
                 const items = event.clipboardData?.items;
                 if (!items) {
@@ -519,6 +565,15 @@ export default function CopilotDrawer() {
                 imeComposingRef.current = false;
               }}
               onKeyDown={(event) => {
+                if (
+                  (event.metaKey || event.ctrlKey) &&
+                  event.shiftKey &&
+                  event.code === 'Space'
+                ) {
+                  event.preventDefault();
+                  toggleVoiceInput();
+                  return;
+                }
                 if (event.key !== 'Enter' || event.shiftKey) {
                   return;
                 }
@@ -594,25 +649,78 @@ export default function CopilotDrawer() {
                 )}
               </div>
               <div className="copilot-composer-footer-right">
-                <button
-                  type="button"
-                  className="copilot-attach-btn"
-                  aria-label="上传截图"
-                  title="上传截图"
-                  disabled={loading || attachments.length >= MAX_COPILOT_IMAGES}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <PaperClipOutlined />
-                </button>
-                <button
-                  type="button"
-                  className="copilot-send-btn"
-                  aria-label="发送"
-                  disabled={!canSend}
-                  onClick={() => sendMessage(input)}
-                >
-                  <SendOutlined />
-                </button>
+                {voiceListening || voiceTranscribing ? (
+                  <>
+                    <div className="copilot-voice-recording-controls">
+                      <CopilotVoiceWaveform
+                        stream={voiceAudioStream}
+                        active={voiceListening}
+                        transcribing={voiceTranscribing}
+                      />
+                      {voiceListening && (
+                        <button
+                          type="button"
+                          className="copilot-voice-stop-btn"
+                          aria-label="停止录音"
+                          title="停止录音"
+                          onClick={() => {
+                            void stopVoiceInput();
+                          }}
+                        >
+                          <span className="copilot-voice-stop-icon" />
+                        </button>
+                      )}
+                      {voiceTranscribing && (
+                        <span className="copilot-voice-status">识别中</span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="copilot-send-btn"
+                      aria-label="发送"
+                      disabled={!canSend}
+                      onClick={() => sendMessage(input)}
+                    >
+                      <SendOutlined />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="copilot-attach-btn"
+                      aria-label="上传截图"
+                      title="上传截图"
+                      disabled={loading || attachments.length >= MAX_COPILOT_IMAGES}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <PaperClipOutlined />
+                    </button>
+                    {voiceSupported && (
+                      <button
+                        type="button"
+                        className="copilot-voice-btn"
+                        aria-label="语音输入"
+                        title={`语音输入 (${voiceShortcut})`}
+                        disabled={loading}
+                        onClick={() => {
+                          void toggleVoiceInput();
+                        }}
+                      >
+                        <AudioOutlined />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="copilot-send-btn"
+                      aria-label="发送"
+                      disabled={!canSend}
+                      onClick={() => sendMessage(input)}
+                    >
+                      <SendOutlined />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

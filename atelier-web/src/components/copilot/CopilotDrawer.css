@@ -496,7 +496,8 @@
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.copilot-composer:focus-within {
+.copilot-composer:focus-within,
+.copilot-composer.listening {
   border-color: rgba(55, 148, 255, 0.65);
   box-shadow: 0 0 0 1px rgba(55, 148, 255, 0.25);
 }
@@ -664,6 +665,104 @@
 .copilot-attach-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+.copilot-voice-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--copilot-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.copilot-voice-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--copilot-text);
+}
+
+.copilot-voice-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.copilot-voice-recording-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 6px 0 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.copilot-voice-waveform {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+  padding: 0 2px;
+}
+
+.copilot-voice-waveform-bar {
+  display: block;
+  width: 3px;
+  height: 16px;
+  border-radius: 1px;
+  background: #b8b8b8;
+  transform-origin: center bottom;
+  transition: transform 0.07s ease-out;
+}
+
+.copilot-voice-waveform.transcribing .copilot-voice-waveform-bar {
+  background: #8ec5ff;
+}
+
+.copilot-voice-stop-btn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  background: #2a2a2a;
+  color: #f3f3f3;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.copilot-voice-stop-btn:hover {
+  background: #343434;
+  border-color: rgba(255, 255, 255, 0.22);
+  transform: scale(1.04);
+}
+
+.copilot-voice-stop-icon {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.copilot-voice-status {
+  font-size: 11px;
+  color: var(--copilot-text-muted);
+  padding-right: 2px;
+  white-space: nowrap;
+}
+
+.copilot-composer.listening textarea::placeholder {
+  color: #8ec5ff;
+  opacity: 0.85;
 }
 
 .copilot-send-btn {
