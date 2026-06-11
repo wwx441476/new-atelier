@@ -84,7 +84,9 @@ public class CopilotService {
         if (request == null || request.getMessages() == null || request.getMessages().isEmpty()) {
             throw new AtelierException("请输入对话内容");
         }
-        SemanticLlmConfig llmConfig = llmConfigLoader.load();
+        SemanticLlmConfig llmConfig = request.getLlmProfileId() != null && !request.getLlmProfileId().trim().isEmpty()
+                ? llmConfigLoader.loadProfile(request.getLlmProfileId().trim())
+                : llmConfigLoader.load();
         if (!llmConfig.isEnabled() || llmConfig.getApiKey() == null || llmConfig.getApiKey().trim().isEmpty()) {
             throw new AtelierException("请先在「语义检测设置」中启用 LLM 并配置 API Key");
         }

@@ -550,7 +550,7 @@
   outline: none;
   background: transparent;
   color: var(--copilot-text);
-  padding: 12px 88px 12px 12px;
+  padding: 12px 12px 8px;
   font: inherit;
 }
 
@@ -558,13 +558,88 @@
   color: #7a7a7a;
 }
 
-.copilot-composer-actions {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
+.copilot-composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px 8px;
+}
+
+.copilot-composer-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.copilot-composer-footer-right {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
+}
+
+.copilot-llm-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 160px;
+  height: 26px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--copilot-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--copilot-text);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.copilot-llm-pill:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.copilot-llm-pill.warning {
+  border-color: rgba(255, 140, 120, 0.55);
+}
+
+.copilot-llm-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copilot-llm-pill-chevron {
+  font-size: 10px;
+  color: var(--copilot-text-muted);
+  flex-shrink: 0;
+}
+
+.copilot-llm-pill-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+}
+
+.copilot-llm-pill-select:disabled {
+  cursor: not-allowed;
+}
+
+.copilot-llm-model {
+  font-size: 11px;
+  color: var(--copilot-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .copilot-attach-btn {
@@ -595,14 +670,14 @@
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 8px;
-  background: var(--copilot-accent);
-  color: #fff;
+  border-radius: 50%;
+  background: #ececec;
+  color: #1a1a1a;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
 }
 
 .copilot-send-btn:disabled {
@@ -611,13 +686,8 @@
 }
 
 .copilot-send-btn:not(:disabled):hover {
+  background: #fff;
   transform: translateY(-1px);
-}
-
-.copilot-composer-hint {
-  margin-top: 8px;
-  font-size: 11px;
-  color: var(--copilot-text-muted);
 }
 
 .copilot-typing {

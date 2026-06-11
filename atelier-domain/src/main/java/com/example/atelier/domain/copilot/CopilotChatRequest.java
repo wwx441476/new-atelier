@@ -21,4 +21,7 @@ public class CopilotChatRequest {
     /** true 时只规划不执行 */
     @Builder.Default
     private boolean dryRun = false;
+
+    /** 指定 Copilot 使用的 LLM 档案 id；为空时使用工作区激活档案 */
+    private String llmProfileId;
 }

@@ -337,6 +337,38 @@ export interface SemanticLlmConfigResponse {
   apiKeyConfigured: boolean;
 }
 
+export interface SemanticLlmProfileResponse {
+  id: string;
+  name: string;
+  enabled: boolean;
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+  timeoutSeconds?: number;
+  apiKeyConfigured: boolean;
+}
+
+export interface SemanticLlmProfileRequest {
+  id?: string;
+  name?: string;
+  enabled?: boolean;
+  provider?: string;
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+  timeoutSeconds?: number;
+}
+
+export interface SemanticLlmProfilesResponse {
+  activeProfileId?: string;
+  profiles: SemanticLlmProfileResponse[];
+}
+
+export interface SemanticLlmProfilesSaveRequest {
+  activeProfileId?: string;
+  profiles: SemanticLlmProfileRequest[];
+}
+
 export interface SemanticLlmConfigRequest {
   enabled?: boolean;
   provider?: string;
@@ -444,6 +476,7 @@ export interface CopilotChatRequest {
   messages: CopilotChatMessage[];
   currentPage?: string;
   dryRun?: boolean;
+  llmProfileId?: string;
 }
 
 export interface CopilotSqlQueryResult extends QueryResult {

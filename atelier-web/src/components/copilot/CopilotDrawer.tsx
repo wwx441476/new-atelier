@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CloseOutlined,
+  DownOutlined,
   PaperClipOutlined,
   RedoOutlined,
   SendOutlined,
@@ -8,11 +9,13 @@ import {
 import { message } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { copilotApi } from '../../api/copilot';
+import { settingsApi } from '../../api/settings';
 import type {
   CopilotActionResult,
   CopilotSqlQueryResult,
   CopilotWarningHitResult as CopilotWarningHitResultData,
   CopilotWarningJobResult,
+  SemanticLlmProfileResponse,
   SqlExecuteResult,
 } from '../../api/types';
 import { ONBOARDING_STEPS } from '../../guide/steps';
@@ -27,6 +30,8 @@ import {
   isAcceptedImageFile,
   readImageAsDataUrl,
 } from '../../utils/copilotImageUtils';
+import { readCopilotLlmProfileId, writeCopilotLlmProfileId } from '../../utils/copilotLlmProfile';
+import { SEMANTIC_LLM_UPDATED_EVENT } from '../../utils/semanticLlmEvents';
 import './CopilotDrawer.css';
 
 const SUGGESTIONS = [
@@ -121,12 +126,50 @@ export default function CopilotDrawer() {
     },
   ]);
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [llmProfiles, setLlmProfiles] = useState<SemanticLlmProfileResponse[]>([]);
+  const [selectedLlmProfileId, setSelectedLlmProfileId] = useState<string>();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imeComposingRef = useRef(false);
   const pageLabel = useMemo(() => resolvePageLabel(location.pathname), [location.pathname]);
 
   const canSend = (input.trim().length > 0 || attachments.length > 0) && !loading;
+
+  const loadLlmProfiles = useCallback(async () => {
+    const data = await settingsApi.getLlmProfiles();
+    setLlmProfiles(data.profiles);
+    const stored = readCopilotLlmProfileId();
+    const validStored = data.profiles.find((profile) => profile.id === stored)?.id;
+    const nextId = validStored || data.activeProfileId || data.profiles[0]?.id;
+    setSelectedLlmProfileId(nextId);
+    if (nextId) {
+      writeCopilotLlmProfileId(nextId);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    loadLlmProfiles().catch(() => {
+      // Copilot 仍可使用工作区默认配置
+    });
+  }, [open, loadLlmProfiles]);
+
+  useEffect(() => {
+    const handleUpdated = () => {
+      if (open) {
+        loadLlmProfiles().catch(() => undefined);
+      }
+    };
+    window.addEventListener(SEMANTIC_LLM_UPDATED_EVENT, handleUpdated);
+    return () => window.removeEventListener(SEMANTIC_LLM_UPDATED_EVENT, handleUpdated);
+  }, [open, loadLlmProfiles]);
+
+  const selectedLlmProfile = useMemo(
+    () => llmProfiles.find((profile) => profile.id === selectedLlmProfileId),
+    [llmProfiles, selectedLlmProfileId],
+  );
 
   const addImageFiles = useCallback(async (files: FileList | File[]) => {
     const fileArray = Array.from(files).filter((file) => isAcceptedImageFile(file));
@@ -162,6 +205,7 @@ export default function CopilotDrawer() {
         messages: toApiMessages(history),
         currentPage: location.pathname,
         dryRun,
+        llmProfileId: selectedLlmProfileId,
       });
       setMessages((prev) => [
         ...prev,
@@ -503,30 +547,74 @@ export default function CopilotDrawer() {
                 event.target.value = '';
               }}
             />
-            <div className="copilot-composer-actions">
-              <button
-                type="button"
-                className="copilot-attach-btn"
-                aria-label="上传截图"
-                title="上传截图"
-                disabled={loading || attachments.length >= MAX_COPILOT_IMAGES}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <PaperClipOutlined />
-              </button>
-              <button
-                type="button"
-                className="copilot-send-btn"
-                aria-label="发送"
-                disabled={!canSend}
-                onClick={() => sendMessage(input)}
-              >
-                <SendOutlined />
-              </button>
+            <div className="copilot-composer-footer">
+              <div className="copilot-composer-footer-left">
+                {llmProfiles.length > 0 && (
+                  <>
+                    <div
+                      className={`copilot-llm-pill${
+                        selectedLlmProfile && !selectedLlmProfile.apiKeyConfigured
+                          ? ' warning'
+                          : ''
+                      }`}
+                      title={
+                        selectedLlmProfile && !selectedLlmProfile.apiKeyConfigured
+                          ? '当前模型未配置 API Key'
+                          : undefined
+                      }
+                    >
+                      <span className="copilot-llm-pill-text">
+                        {selectedLlmProfile?.name || '选择模型'}
+                      </span>
+                      <DownOutlined className="copilot-llm-pill-chevron" />
+                      <select
+                        className="copilot-llm-pill-select"
+                        value={selectedLlmProfileId || ''}
+                        onChange={(event) => {
+                          const nextId = event.target.value;
+                          setSelectedLlmProfileId(nextId);
+                          writeCopilotLlmProfileId(nextId);
+                        }}
+                        disabled={loading}
+                        aria-label="切换 LLM"
+                      >
+                        {llmProfiles.map((profile) => (
+                          <option key={profile.id} value={profile.id}>
+                            {profile.name}
+                            {profile.model ? ` · ${profile.model}` : ''}
+                            {!profile.enabled ? '（未启用）' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {selectedLlmProfile?.model && (
+                      <span className="copilot-llm-model">{selectedLlmProfile.model}</span>
+                    )}
+                  </>
+                )}
+              </div>
+              <div className="copilot-composer-footer-right">
+                <button
+                  type="button"
+                  className="copilot-attach-btn"
+                  aria-label="上传截图"
+                  title="上传截图"
+                  disabled={loading || attachments.length >= MAX_COPILOT_IMAGES}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <PaperClipOutlined />
+                </button>
+                <button
+                  type="button"
+                  className="copilot-send-btn"
+                  aria-label="发送"
+                  disabled={!canSend}
+                  onClick={() => sendMessage(input)}
+                >
+                  <SendOutlined />
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="copilot-composer-hint">
-            Enter 发送 · Shift+Enter 换行 · 可粘贴或拖拽截图
           </div>
         </div>
     </aside>

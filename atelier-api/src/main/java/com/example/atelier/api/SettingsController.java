@@ -3,6 +3,9 @@ package com.example.atelier.api;
 import com.example.atelier.api.dto.ApiResponse;
 import com.example.atelier.api.dto.SemanticLlmConfigRequest;
 import com.example.atelier.api.dto.SemanticLlmConfigResponse;
+import com.example.atelier.api.dto.SemanticLlmProfileRequest;
+import com.example.atelier.api.dto.SemanticLlmProfilesResponse;
+import com.example.atelier.api.dto.SemanticLlmProfilesSaveRequest;
 import com.example.atelier.api.service.AppSettingService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,6 +41,26 @@ public class SettingsController {
     @PostMapping("/semantic-llm/test")
     public ApiResponse<Map<String, Object>> testSemanticLlm(@RequestBody SemanticLlmConfigRequest request) {
         boolean ok = appSettingService.testConnection(request);
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", ok);
+        result.put("message", ok ? "连接成功" : "连接失败");
+        return ApiResponse.ok(result);
+    }
+
+    @GetMapping("/llm-profiles")
+    public ApiResponse<SemanticLlmProfilesResponse> getLlmProfiles() {
+        return ApiResponse.ok(appSettingService.getLlmProfiles());
+    }
+
+    @PutMapping("/llm-profiles")
+    public ApiResponse<SemanticLlmProfilesResponse> saveLlmProfiles(
+            @RequestBody SemanticLlmProfilesSaveRequest request) {
+        return ApiResponse.ok(appSettingService.saveLlmProfiles(request));
+    }
+
+    @PostMapping("/llm-profiles/test")
+    public ApiResponse<Map<String, Object>> testLlmProfile(@RequestBody SemanticLlmProfileRequest request) {
+        boolean ok = appSettingService.testProfile(request);
         Map<String, Object> result = new HashMap<>();
         result.put("success", ok);
         result.put("message", ok ? "连接成功" : "连接失败");

@@ -2,60 +2,116 @@ package com.example.atelier.api.service;
 
 import com.example.atelier.api.dto.SemanticLlmConfigRequest;
 import com.example.atelier.api.dto.SemanticLlmConfigResponse;
+import com.example.atelier.api.dto.SemanticLlmProfileRequest;
+import com.example.atelier.api.dto.SemanticLlmProfileResponse;
+import com.example.atelier.api.dto.SemanticLlmProfilesResponse;
+import com.example.atelier.api.dto.SemanticLlmProfilesSaveRequest;
 import com.example.atelier.domain.settings.SemanticLlmConfig;
+import com.example.atelier.domain.settings.SemanticLlmProfile;
+import com.example.atelier.domain.settings.SemanticLlmProfilesSettings;
 import com.example.atelier.infra.exception.AtelierException;
-import com.example.atelier.infra.persistence.entity.AppSettingEntity;
-import com.example.atelier.infra.persistence.jpa.AppSettingJpaRepository;
 import com.example.atelier.warning.evaluator.LlmChatClient;
 import com.example.atelier.warning.evaluator.SemanticLlmProviders;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.atelier.warning.service.SemanticLlmConfigLoader;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 public class AppSettingService {
 
-    private static final String SEMANTIC_LLM_KEY = "semantic.llm";
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-
-    private final AppSettingJpaRepository repository;
+    private final SemanticLlmConfigLoader configLoader;
     private final LlmChatClient chatClient = new LlmChatClient();
 
-    public AppSettingService(AppSettingJpaRepository repository) {
-        this.repository = repository;
+    public AppSettingService(SemanticLlmConfigLoader configLoader) {
+        this.configLoader = configLoader;
     }
 
     public SemanticLlmConfig getSemanticLlmConfig() {
-        return repository.findById(SEMANTIC_LLM_KEY)
-                .map(entity -> fromJson(entity.getSettingValue()))
-                .orElse(defaultConfig());
+        return configLoader.load();
     }
 
     public SemanticLlmConfigResponse getSemanticLlmConfigForResponse() {
-        SemanticLlmConfig config = getSemanticLlmConfig();
-        return SemanticLlmConfigResponse.builder()
-                .enabled(config.isEnabled())
-                .provider(config.getProvider())
-                .model(config.getModel())
-                .baseUrl(config.getBaseUrl())
-                .timeoutSeconds(config.getTimeoutSeconds())
-                .apiKeyConfigured(config.getApiKey() != null && !config.getApiKey().trim().isEmpty())
+        return toLegacyResponse(configLoader.load());
+    }
+
+    public SemanticLlmProfilesResponse getLlmProfiles() {
+        return toProfilesResponse(configLoader.loadProfilesSettings());
+    }
+
+    @Transactional
+    public SemanticLlmProfilesResponse saveLlmProfiles(SemanticLlmProfilesSaveRequest request) {
+        if (request == null || request.getProfiles() == null || request.getProfiles().isEmpty()) {
+            throw new AtelierException("至少保留一套 LLM 配置");
+        }
+        SemanticLlmProfilesSettings existing = configLoader.loadProfilesSettings();
+        Map<String, SemanticLlmProfile> existingById = existing.getProfiles().stream()
+                .collect(Collectors.toMap(SemanticLlmProfile::getId, profile -> profile, (a, b) -> a));
+
+        List<SemanticLlmProfile> profiles = new ArrayList<>();
+        for (SemanticLlmProfileRequest item : request.getProfiles()) {
+            profiles.add(mergeProfile(item, existingById));
+        }
+        SemanticLlmProfilesSettings settings = SemanticLlmProfilesSettings.builder()
+                .activeProfileId(request.getActiveProfileId())
+                .profiles(profiles)
                 .build();
+        configLoader.saveProfilesSettings(settings);
+        return toProfilesResponse(configLoader.loadProfilesSettings());
     }
 
     @Transactional
     public void saveSemanticLlmConfig(SemanticLlmConfigRequest request) {
-        SemanticLlmConfig existing = getSemanticLlmConfig();
+        SemanticLlmProfilesSettings settings = configLoader.loadProfilesSettings();
+        String activeId = settings.getActiveProfileId();
+        SemanticLlmProfile active = settings.getProfiles().stream()
+                .filter(profile -> activeId != null && activeId.equals(profile.getId()))
+                .findFirst()
+                .orElse(settings.getProfiles().get(0));
+
+        SemanticLlmProfile merged = mergeLegacyRequest(active, request);
+        List<SemanticLlmProfile> profiles = settings.getProfiles().stream()
+                .map(profile -> profile.getId().equals(merged.getId()) ? merged : profile)
+                .collect(Collectors.toList());
+        configLoader.saveProfilesSettings(SemanticLlmProfilesSettings.builder()
+                .activeProfileId(settings.getActiveProfileId())
+                .profiles(profiles)
+                .build());
+    }
+
+    public boolean testConnection(SemanticLlmConfigRequest request) {
+        SemanticLlmConfig config = buildConfigForTest(request, null);
+        chatClient.chat(config, "Reply with OK only.", "ping");
+        return true;
+    }
+
+    public boolean testProfile(SemanticLlmProfileRequest request) {
+        SemanticLlmProfilesSettings settings = configLoader.loadProfilesSettings();
+        Map<String, SemanticLlmProfile> existingById = settings.getProfiles().stream()
+                .collect(Collectors.toMap(SemanticLlmProfile::getId, profile -> profile, (a, b) -> a));
+        SemanticLlmProfile profile = mergeProfile(request, existingById);
+        SemanticLlmConfig config = profile.toConfig();
+        SemanticLlmProviders.applyProviderDefaults(config);
+        if (config.getModel() == null || config.getModel().trim().isEmpty()) {
+            config.setModel("gpt-4o-mini");
+        }
+        chatClient.chat(config, "Reply with OK only.", "ping");
+        return true;
+    }
+
+    private SemanticLlmProfile mergeLegacyRequest(SemanticLlmProfile existing, SemanticLlmConfigRequest request) {
         String apiKey = request.getApiKey() != null && !request.getApiKey().trim().isEmpty()
                 ? request.getApiKey().trim()
                 : existing.getApiKey();
-
-        SemanticLlmConfig config = SemanticLlmConfig.builder()
+        return SemanticLlmProfile.builder()
+                .id(existing.getId())
+                .name(existing.getName())
                 .enabled(request.getEnabled() != null ? request.getEnabled() : existing.isEnabled())
                 .provider(firstNonBlank(request.getProvider(), existing.getProvider()))
                 .apiKey(apiKey)
@@ -65,23 +121,37 @@ public class AppSettingService {
                         ? request.getTimeoutSeconds()
                         : existing.getTimeoutSeconds())
                 .build();
-        SemanticLlmProviders.applyProviderDefaults(config);
-
-        AppSettingEntity entity = repository.findById(SEMANTIC_LLM_KEY)
-                .orElse(AppSettingEntity.builder().settingKey(SEMANTIC_LLM_KEY).build());
-        entity.setSettingValue(toJson(config));
-        entity.setModifyTime(LocalDateTime.now());
-        repository.save(entity);
     }
 
-    public boolean testConnection(SemanticLlmConfigRequest request) {
-        SemanticLlmConfig config = buildConfigForTest(request);
-        chatClient.chat(config, "Reply with OK only.", "ping");
-        return true;
+    private SemanticLlmProfile mergeProfile(SemanticLlmProfileRequest request,
+            Map<String, SemanticLlmProfile> existingById) {
+        String id = request.getId() != null && !request.getId().trim().isEmpty()
+                ? request.getId().trim()
+                : SemanticLlmConfigLoader.generateProfileId();
+        SemanticLlmProfile existing = existingById.get(id);
+        String apiKey = request.getApiKey() != null && !request.getApiKey().trim().isEmpty()
+                ? request.getApiKey().trim()
+                : existing != null ? existing.getApiKey() : null;
+        return SemanticLlmProfile.builder()
+                .id(id)
+                .name(firstNonBlank(request.getName(), existing != null ? existing.getName() : null, "未命名"))
+                .enabled(request.getEnabled() != null
+                        ? request.getEnabled()
+                        : existing != null && existing.isEnabled())
+                .provider(firstNonBlank(request.getProvider(), existing != null ? existing.getProvider() : null))
+                .apiKey(apiKey)
+                .model(firstNonBlank(request.getModel(), existing != null ? existing.getModel() : null))
+                .baseUrl(firstNonBlank(request.getBaseUrl(), existing != null ? existing.getBaseUrl() : null))
+                .timeoutSeconds(request.getTimeoutSeconds() != null
+                        ? request.getTimeoutSeconds()
+                        : existing != null ? existing.getTimeoutSeconds() : 30)
+                .build();
     }
 
-    private SemanticLlmConfig buildConfigForTest(SemanticLlmConfigRequest request) {
-        SemanticLlmConfig existing = getSemanticLlmConfig();
+    private SemanticLlmConfig buildConfigForTest(SemanticLlmConfigRequest request, String profileId) {
+        SemanticLlmConfig existing = profileId != null
+                ? configLoader.loadProfile(profileId)
+                : configLoader.load();
         String apiKey = request.getApiKey() != null && !request.getApiKey().trim().isEmpty()
                 ? request.getApiKey().trim()
                 : existing.getApiKey();
@@ -102,16 +172,38 @@ public class AppSettingService {
         return config;
     }
 
-    private SemanticLlmConfig defaultConfig() {
-        SemanticLlmConfig config = SemanticLlmConfig.builder()
-                .enabled(false)
-                .provider(SemanticLlmProviders.OPENAI)
-                .model("gpt-4o-mini")
-                .baseUrl("https://api.openai.com/v1")
-                .timeoutSeconds(30)
+    private SemanticLlmProfilesResponse toProfilesResponse(SemanticLlmProfilesSettings settings) {
+        List<SemanticLlmProfileResponse> profiles = settings.getProfiles().stream()
+                .map(this::toProfileResponse)
+                .collect(Collectors.toList());
+        return SemanticLlmProfilesResponse.builder()
+                .activeProfileId(settings.getActiveProfileId())
+                .profiles(profiles)
                 .build();
-        SemanticLlmProviders.applyProviderDefaults(config);
-        return config;
+    }
+
+    private SemanticLlmProfileResponse toProfileResponse(SemanticLlmProfile profile) {
+        return SemanticLlmProfileResponse.builder()
+                .id(profile.getId())
+                .name(profile.getName())
+                .enabled(profile.isEnabled())
+                .provider(profile.getProvider())
+                .model(profile.getModel())
+                .baseUrl(profile.getBaseUrl())
+                .timeoutSeconds(profile.getTimeoutSeconds())
+                .apiKeyConfigured(profile.getApiKey() != null && !profile.getApiKey().trim().isEmpty())
+                .build();
+    }
+
+    private SemanticLlmConfigResponse toLegacyResponse(SemanticLlmConfig config) {
+        return SemanticLlmConfigResponse.builder()
+                .enabled(config.isEnabled())
+                .provider(config.getProvider())
+                .model(config.getModel())
+                .baseUrl(config.getBaseUrl())
+                .timeoutSeconds(config.getTimeoutSeconds())
+                .apiKeyConfigured(config.getApiKey() != null && !config.getApiKey().trim().isEmpty())
+                .build();
     }
 
     private static String firstNonBlank(String... values) {
@@ -121,24 +213,5 @@ public class AppSettingService {
             }
         }
         return null;
-    }
-
-    private static String toJson(SemanticLlmConfig config) {
-        try {
-            return MAPPER.writeValueAsString(config);
-        } catch (JsonProcessingException e) {
-            throw new AtelierException("LLM 配置序列化失败", e);
-        }
-    }
-
-    private static SemanticLlmConfig fromJson(String json) {
-        if (json == null || json.trim().isEmpty()) {
-            return SemanticLlmConfig.builder().enabled(false).build();
-        }
-        try {
-            return MAPPER.readValue(json, SemanticLlmConfig.class);
-        } catch (JsonProcessingException e) {
-            throw new AtelierException("LLM 配置反序列化失败", e);
-        }
     }
 }
