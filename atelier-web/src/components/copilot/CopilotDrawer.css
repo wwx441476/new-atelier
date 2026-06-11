@@ -13,7 +13,7 @@
   position: fixed;
   top: 0;
   right: 0;
-  z-index: 1000;
+  z-index: 1100;
   width: min(440px, 100vw);
   height: 100vh;
   display: flex;
@@ -830,6 +830,12 @@
   .admin-main-with-copilot {
     margin-right: min(440px, 100vw);
     transition: margin-right 0.2s ease;
+  }
+
+  /* Copilot 打开时，弹窗遮罩不覆盖右侧边栏，便于边看数据边对话 */
+  html.atelier-copilot-open .ant-modal-root .ant-modal-mask,
+  html.atelier-copilot-open .ant-modal-root .ant-modal-wrap {
+    width: calc(100% - min(440px, 100vw));
   }
 }
 

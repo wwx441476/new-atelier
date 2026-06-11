@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 
 interface CopilotContextValue {
   open: boolean;
@@ -11,6 +19,13 @@ const CopilotContext = createContext<CopilotContextValue | null>(null);
 export function CopilotProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const toggle = useCallback(() => setOpen((value) => !value), []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('atelier-copilot-open', open);
+    return () => {
+      document.documentElement.classList.remove('atelier-copilot-open');
+    };
+  }, [open]);
 
   const value = useMemo(
     () => ({
