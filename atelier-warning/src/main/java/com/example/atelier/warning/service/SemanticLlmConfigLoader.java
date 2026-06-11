@@ -9,6 +9,7 @@ import com.example.atelier.infra.persistence.jpa.AppSettingJpaRepository;
 import com.example.atelier.warning.evaluator.SemanticLlmProviders;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -26,6 +27,7 @@ public class SemanticLlmConfigLoader {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    private final Object migrateLock = new Object();
     private final AppSettingJpaRepository repository;
 
     public SemanticLlmConfigLoader(AppSettingJpaRepository repository) {
@@ -53,7 +55,13 @@ public class SemanticLlmConfigLoader {
         if (profilesEntity.isPresent()) {
             return normalizeProfiles(fromProfilesJson(profilesEntity.get().getSettingValue()));
         }
-        return migrateFromLegacyConfig();
+        synchronized (migrateLock) {
+            profilesEntity = repository.findById(SEMANTIC_LLM_PROFILES_KEY);
+            if (profilesEntity.isPresent()) {
+                return normalizeProfiles(fromProfilesJson(profilesEntity.get().getSettingValue()));
+            }
+            return migrateFromLegacyConfig();
+        }
     }
 
     public void saveProfilesSettings(SemanticLlmProfilesSettings settings) {
@@ -114,7 +122,14 @@ public class SemanticLlmConfigLoader {
                     .profiles(new ArrayList<>(Collections.singletonList(profile)))
                     .build();
         }
-        saveProfilesSettings(settings);
+        try {
+            saveProfilesSettings(settings);
+        } catch (DataIntegrityViolationException ex) {
+            return normalizeProfiles(fromProfilesJson(
+                    repository.findById(SEMANTIC_LLM_PROFILES_KEY)
+                            .map(AppSettingEntity::getSettingValue)
+                            .orElse(null)));
+        }
         return settings;
     }
 
