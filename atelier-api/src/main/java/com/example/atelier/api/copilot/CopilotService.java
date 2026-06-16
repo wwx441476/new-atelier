@@ -54,9 +54,17 @@ public class CopilotService {
                     + "11. execute_sql: datasourceId,sql,pageIndex?(默认1),pageSize?(默认20) — 只读 SELECT 查询\n"
                     + "12. execute_write_sql: datasourceId,sql — INSERT/UPDATE/DELETE/CREATE TABLE/ALTER TABLE/DROP TABLE\n"
                     + "13. create_physical_table: datasourceId,tableName,schema?,ifNotExists?,columns[{name,type,nullable?,primaryKey?}]\n"
+                    + "14. create_dashboard: params 为 {dashboard:{code,name,layout,widgets[]}}；"
+                    + "type 只能是 TITLE/METRIC_VALUE/METRIC_CHART/METRIC_TABLE/WARNING_STAT/WARNING_TABLE/SQL_VALUE/SQL_CHART/SQL_TABLE，"
+                    + "widgets 每项仅含 id,type,title,x,y,w,h,content?(TITLE 为字符串),style?,dataSource?；"
+                    + "禁止在 widget 上写 metricCode/code/ruleId 等，必须全部放在 dataSource 内；"
+                    + "指标绑定用 dataSource.metricCodes 数组与 valueField；预警用 dataSource.ruleId；"
+                    + "layout 必须是对象 {width,height,gridCols,rowHeight,theme}，禁止数组；组件放在 widgets[]，不要放进 layout\n"
+                    + "create_physical_table 的 params 键名必须完整：datasourceId,tableName,schema?,ifNotExists?,columns[{name,type,...}]，禁止省略 columns\n"
                     + "当用户要执行/预览/跑一下某条预警规则时，使用 run_warning_rule；params 必须包含 ruleId、ruleCode 或 ruleName 之一，"
                     + "禁止留空。用户通过截图/名称指代规则时，从 warningRules 匹配 name 填入 ruleName（如「学杂费项目备注烟酒」），"
                     + "或填入对应 code（如 tuition_remark_tobacco），不要同步等待结果。\n"
+                    + "当用户在可视化大屏页面要求生成/创建大屏、或上传大屏截图要求复刻布局时，使用 create_dashboard。\n"
                     + "当用户要查看命中数据、展示命中的行、上面预警结果的具体数据时，使用 get_warning_job_result（jobId 从 recentWarningJobs 或对话中最近任务获取），不要编造数据。\n"
                     + "规则：引用已有对象时使用工作区中的 id/code；ID 用小写英文与数字；先解释计划再给出 actions；"
                     + "涉及数据写入或建表前提醒用户确认；仅规划模式下仍须写出完整 sql 或 columns；"
@@ -100,11 +108,11 @@ public class CopilotService {
                 request.getCurrentPage(), request.getMessages().size(), images.size());
 
         String content = chatClient.chat(llmConfig, SYSTEM_PROMPT, userPrompt, images, LlmChatClient.AGENT_MAX_TOKENS);
-        ParsedPlan plan = parsePlan(content);
+        CopilotResponseParser.CopilotParsedResponse plan = CopilotResponseParser.parse(content);
 
         List<CopilotActionResult> actionResults = new ArrayList<>();
-        if (plan.actions != null) {
-            for (JsonNode action : plan.actions) {
+        if (plan.getActions() != null) {
+            for (JsonNode action : plan.getActions()) {
                 String tool = action.path("tool").asText("");
                 JsonNode params = enrichActionParams(tool, action.path("params"), request);
                 if (request.isDryRun()) {
@@ -115,7 +123,7 @@ public class CopilotService {
             }
         }
 
-        String reply = plan.reply;
+        String reply = plan.getReply();
         if (!request.isDryRun() && actionResults.stream().anyMatch(CopilotActionResult::isSuccess)) {
             workspaceSummary = contextBuilder.buildSummary();
             String supplement = buildPostActionSupplement(actionResults, workspaceSummary);
@@ -273,6 +281,10 @@ public class CopilotService {
                 return "计划异步执行预警规则 " + ruleLabel + "（仅规划，未执行）";
             case "get_warning_job_result":
                 return "计划获取预警任务 " + textParam(params, "jobId", "") + " 的命中数据（仅规划，未执行）";
+            case "create_dashboard":
+                return "计划创建大屏 " + textParam(params, "name",
+                        textParam(params.path("dashboard"), "name", textParam(params, "code", "")))
+                        + "（仅规划，未执行）";
             default:
                 return "计划执行 " + tool + "（仅规划，未执行）";
         }
@@ -374,64 +386,6 @@ public class CopilotService {
         } catch (Exception e) {
             log.warn("Copilot 同步后补充字段列表失败: {}", e.getMessage());
             return null;
-        }
-    }
-
-    private ParsedPlan parsePlan(String content) {
-        if (content == null || content.trim().isEmpty()) {
-            return new ParsedPlan("已完成。", new ArrayList<JsonNode>());
-        }
-        String trimmed = unwrapMarkdownCodeFence(content.trim());
-        try {
-            return buildParsedPlan(MAPPER.readTree(trimmed));
-        } catch (Exception ignored) {
-            // try extracting JSON object from mixed content
-        }
-        try {
-            return buildParsedPlan(MAPPER.readTree(LlmChatClient.extractJsonObject(trimmed)));
-        } catch (Exception e) {
-            log.warn("Copilot 响应解析失败，返回原文: {}", e.getMessage());
-            return new ParsedPlan(content, new ArrayList<JsonNode>());
-        }
-    }
-
-    private ParsedPlan buildParsedPlan(JsonNode root) {
-        String reply = root.path("reply").asText("").trim();
-        if (reply.isEmpty()) {
-            throw new IllegalArgumentException("reply 为空");
-        }
-        JsonNode actionsNode = root.path("actions");
-        List<JsonNode> actions = new ArrayList<>();
-        if (actionsNode.isArray()) {
-            for (JsonNode node : actionsNode) {
-                actions.add(node);
-            }
-        }
-        return new ParsedPlan(reply, actions);
-    }
-
-    private String unwrapMarkdownCodeFence(String content) {
-        if (!content.startsWith("```")) {
-            return content;
-        }
-        int firstLineEnd = content.indexOf('\n');
-        if (firstLineEnd < 0) {
-            return content;
-        }
-        String body = content.substring(firstLineEnd + 1);
-        if (body.endsWith("```")) {
-            body = body.substring(0, body.length() - 3);
-        }
-        return body.trim();
-    }
-
-    private static final class ParsedPlan {
-        private final String reply;
-        private final List<JsonNode> actions;
-
-        private ParsedPlan(String reply, List<JsonNode> actions) {
-            this.reply = reply;
-            this.actions = actions;
         }
     }
 }

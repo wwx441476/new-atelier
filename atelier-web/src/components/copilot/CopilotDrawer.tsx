@@ -7,8 +7,8 @@ import {
   RedoOutlined,
   SendOutlined,
 } from '@ant-design/icons';
-import { message } from 'antd';
-import { useLocation } from 'react-router-dom';
+import { Button, message } from 'antd';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { copilotApi } from '../../api/copilot';
 import { settingsApi } from '../../api/settings';
 import type {
@@ -19,6 +19,7 @@ import type {
   SemanticLlmProfileResponse,
   SqlExecuteResult,
 } from '../../api/types';
+import { formatCopilotReply, copilotToolLabel } from '../../utils/copilotReplyUtils';
 import { ONBOARDING_STEPS } from '../../guide/steps';
 import CopilotMessageContent from './CopilotMessageContent';
 import CopilotQueryResult from './CopilotQueryResult';
@@ -45,6 +46,12 @@ const SUGGESTIONS = [
   '基于 orders 表创建按部门汇总的营收指标',
   '创建利润低于 500 的预警规则',
   '跑一下 low_profit 预警，看看命中哪些数据',
+];
+
+const DASHBOARD_SUGGESTIONS = [
+  '生成财务经营监控大屏，包含 KPI、部门图表、预警和订单表',
+  '帮我创建一个简洁的销售概览大屏',
+  '根据截图复刻类似的大屏布局',
 ];
 
 interface DisplayMessage {
@@ -99,6 +106,14 @@ function isWarningJobResult(result: unknown): result is CopilotWarningJobResult 
   return typeof value.jobId === 'string' && !Array.isArray(value.matchedRows);
 }
 
+function isDashboardScreen(result: unknown): result is { id?: string; code: string; name: string } {
+  if (!result || typeof result !== 'object') {
+    return false;
+  }
+  const value = result as Record<string, unknown>;
+  return typeof value.code === 'string' && typeof value.name === 'string';
+}
+
 function isWarningHitResult(result: unknown): result is CopilotWarningHitResultData {
   if (!result || typeof result !== 'object') {
     return false;
@@ -117,6 +132,7 @@ function resolvePageLabel(pathname: string) {
 
 export default function CopilotDrawer() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { open, setOpen } = useCopilot();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -136,6 +152,13 @@ export default function CopilotDrawer() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imeComposingRef = useRef(false);
   const pageLabel = useMemo(() => resolvePageLabel(location.pathname), [location.pathname]);
+  const suggestions = useMemo(
+    () =>
+      location.pathname.startsWith('/dashboards') || location.pathname.startsWith('/screen/')
+        ? DASHBOARD_SUGGESTIONS
+        : SUGGESTIONS,
+    [location.pathname],
+  );
 
   const canSend = (input.trim().length > 0 || attachments.length > 0) && !loading;
   const voiceShortcut = useMemo(() => getVoiceInputShortcutLabel(), []);
@@ -252,7 +275,7 @@ export default function CopilotDrawer() {
         {
           id: createId(),
           role: 'assistant',
-          content: response.reply || '已完成。',
+          content: formatCopilotReply(response.reply || '已完成。'),
           actions: response.actions,
         },
       ]);
@@ -403,7 +426,7 @@ export default function CopilotDrawer() {
                               <div>
                                 <div>{action.message}</div>
                                 <div style={{ color: '#8b8b8b', marginTop: 2 }}>
-                                  {action.tool}
+                                  {copilotToolLabel(action.tool)}
                                   {action.planned ? ' · 仅规划' : ''}
                                 </div>
                               </div>
@@ -439,6 +462,27 @@ export default function CopilotDrawer() {
                                   data={action.result}
                                   planned={action.planned}
                                 />
+                              )}
+                            {action.tool === 'create_dashboard' &&
+                              (action.success || action.planned) &&
+                              isDashboardScreen(action.result) && (
+                                <div style={{ marginTop: 8 }}>
+                                  <Button
+                                    type="link"
+                                    size="small"
+                                    disabled={action.planned}
+                                    onClick={() => {
+                                      const screen = action.result as { id?: string; code: string };
+                                      if (screen.id) {
+                                        navigate(`/dashboards/${screen.id}/edit`);
+                                      } else {
+                                        navigate('/dashboards');
+                                      }
+                                    }}
+                                  >
+                                    打开大屏设计器
+                                  </Button>
+                                </div>
                               )}
                           </div>
                         ))}
@@ -484,7 +528,7 @@ export default function CopilotDrawer() {
           <div className="copilot-suggestions">
             <div className="copilot-suggestions-label">快速开始</div>
             <div className="copilot-suggestion-list">
-              {SUGGESTIONS.map((item) => (
+              {suggestions.map((item) => (
                 <button
                   key={item}
                   type="button"

@@ -631,3 +631,16 @@ export interface DashboardScreen {
   layout?: DashboardLayoutConfig;
   widgets?: DashboardWidget[];
 }
+
+export interface DashboardGenerateRequest {
+  prompt: string;
+  images?: string[];
+  llmProfileId?: string;
+  autoSave?: boolean;
+}
+
+export interface DashboardGenerateResponse {
+  reply: string;
+  dashboard: DashboardScreen;
+  saved: boolean;
+}

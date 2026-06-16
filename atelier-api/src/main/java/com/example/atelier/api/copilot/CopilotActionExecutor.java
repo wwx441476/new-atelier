@@ -1,6 +1,9 @@
 package com.example.atelier.api.copilot;
 
 import com.example.atelier.dimension.spi.DimensionService;
+import com.example.atelier.api.dashboard.DashboardGenerateService;
+import com.example.atelier.api.dashboard.DashboardScreenNormalizer;
+import com.example.atelier.domain.dashboard.DashboardScreen;
 import com.example.atelier.domain.copilot.CopilotActionResult;
 import com.example.atelier.domain.copilot.CopilotSqlQueryResult;
 import com.example.atelier.domain.datasource.DbCreateTableColumn;
@@ -40,6 +43,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 @Component
@@ -56,6 +60,8 @@ public class CopilotActionExecutor {
     private final WarningRuleJobService warningRuleJobService;
     private final DatabaseBrowserService databaseBrowserService;
     private final CopilotWarningRuleResolver warningRuleResolver;
+    private final DashboardGenerateService dashboardGenerateService;
+    private final DashboardScreenNormalizer dashboardScreenNormalizer;
 
     public CopilotActionExecutor(DataSourcePersistenceService dataSourceService,
                                  DataSourceRegistry dataSourceRegistry,
@@ -65,7 +71,9 @@ public class CopilotActionExecutor {
                                  WarningRuleService warningRuleService,
                                  WarningRuleJobService warningRuleJobService,
                                  DatabaseBrowserService databaseBrowserService,
-                                 CopilotWarningRuleResolver warningRuleResolver) {
+                                 CopilotWarningRuleResolver warningRuleResolver,
+                                 DashboardGenerateService dashboardGenerateService,
+                                 DashboardScreenNormalizer dashboardScreenNormalizer) {
         this.dataSourceService = dataSourceService;
         this.dataSourceRegistry = dataSourceRegistry;
         this.metadataService = metadataService;
@@ -75,6 +83,8 @@ public class CopilotActionExecutor {
         this.warningRuleJobService = warningRuleJobService;
         this.databaseBrowserService = databaseBrowserService;
         this.warningRuleResolver = warningRuleResolver;
+        this.dashboardGenerateService = dashboardGenerateService;
+        this.dashboardScreenNormalizer = dashboardScreenNormalizer;
     }
 
     public CopilotActionResult execute(String tool, JsonNode params) {
@@ -110,6 +120,8 @@ public class CopilotActionExecutor {
                     return executeWriteSql(params);
                 case "create_physical_table":
                     return createPhysicalTable(params);
+                case "create_dashboard":
+                    return createDashboard(params);
                 default:
                     return fail(tool, "未知工具: " + tool);
             }
@@ -118,6 +130,12 @@ public class CopilotActionExecutor {
         } catch (Exception e) {
             return fail(tool, "执行失败: " + e.getMessage());
         }
+    }
+
+    private CopilotActionResult createDashboard(JsonNode params) {
+        DashboardScreen screen = dashboardGenerateService.parseAndNormalize(params);
+        DashboardScreen saved = dashboardScreenNormalizer.save(screen);
+        return success("create_dashboard", "已创建大屏「" + saved.getName() + "」", saved);
     }
 
     private CopilotActionResult createDatasource(JsonNode params) {
@@ -248,7 +266,7 @@ public class CopilotActionExecutor {
 
     DbCreateTableRequest parseCreateTableRequest(JsonNode params) {
         List<DbCreateTableColumn> columns = new ArrayList<>();
-        JsonNode columnsNode = params.get("columns");
+        JsonNode columnsNode = resolveColumnsNode(params);
         if (columnsNode != null && columnsNode.isArray()) {
             for (JsonNode item : columnsNode) {
                 columns.add(DbCreateTableColumn.builder()
@@ -260,7 +278,7 @@ public class CopilotActionExecutor {
             }
         }
         if (columns.isEmpty()) {
-            throw new AtelierException("建表至少需要一个字段");
+            throw new AtelierException("建表至少需要一个字段，params 须包含 columns 数组");
         }
         return DbCreateTableRequest.builder()
                 .schema(text(params, "schema"))
@@ -272,6 +290,30 @@ public class CopilotActionExecutor {
 
     String previewCreateTableDdl(String datasourceId, JsonNode params) {
         return databaseBrowserService.previewCreateTableDdl(datasourceId, parseCreateTableRequest(params));
+    }
+
+    private JsonNode resolveColumnsNode(JsonNode params) {
+        JsonNode columnsNode = params.get("columns");
+        if (columnsNode != null && columnsNode.isArray()) {
+            return columnsNode;
+        }
+        Iterator<String> fieldNames = params.fieldNames();
+        while (fieldNames.hasNext()) {
+            String field = fieldNames.next();
+            JsonNode value = params.get(field);
+            if (value != null && value.isArray() && looksLikeColumnsArray(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private boolean looksLikeColumnsArray(JsonNode array) {
+        if (array == null || !array.isArray() || array.size() == 0) {
+            return false;
+        }
+        JsonNode first = array.get(0);
+        return first != null && first.isObject() && first.has("name") && first.has("type");
     }
 
     private CopilotActionResult executeSql(JsonNode params) {

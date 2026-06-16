@@ -1,6 +1,9 @@
 package com.example.atelier.api;
 
 import com.example.atelier.api.dto.ApiResponse;
+import com.example.atelier.api.dashboard.DashboardGenerateService;
+import com.example.atelier.domain.dashboard.DashboardGenerateRequest;
+import com.example.atelier.domain.dashboard.DashboardGenerateResponse;
 import com.example.atelier.domain.dashboard.DashboardScreen;
 import com.example.atelier.infra.persistence.service.DashboardScreenService;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -21,9 +24,12 @@ import java.util.List;
 public class DashboardController {
 
     private final DashboardScreenService dashboardScreenService;
+    private final DashboardGenerateService dashboardGenerateService;
 
-    public DashboardController(DashboardScreenService dashboardScreenService) {
+    public DashboardController(DashboardScreenService dashboardScreenService,
+                               DashboardGenerateService dashboardGenerateService) {
         this.dashboardScreenService = dashboardScreenService;
+        this.dashboardGenerateService = dashboardGenerateService;
     }
 
     @GetMapping
@@ -43,6 +49,11 @@ public class DashboardController {
         return dashboardScreenService.getByCode(code)
                 .map(ApiResponse::ok)
                 .orElseGet(() -> ApiResponse.fail("大屏不存在: " + code));
+    }
+
+    @PostMapping("/generate")
+    public ApiResponse<DashboardGenerateResponse> generate(@RequestBody DashboardGenerateRequest request) {
+        return ApiResponse.ok(dashboardGenerateService.generate(request));
     }
 
     @PostMapping

@@ -116,9 +116,17 @@ export default function CopilotMessageContent({ content }: { content: string }) 
           );
         }
         return (
-          <p key={index} className="copilot-text-block">
-            {renderInline(block.value as string)}
-          </p>
+          <div key={index} className="copilot-text-block">
+            {(block.value as string).split('\n').map((line, lineIndex) =>
+              line.trim() ? (
+                <span key={lineIndex} className="copilot-text-line">
+                  {renderInline(line)}
+                </span>
+              ) : (
+                <br key={lineIndex} />
+              ),
+            )}
+          </div>
         );
       })}
     </div>

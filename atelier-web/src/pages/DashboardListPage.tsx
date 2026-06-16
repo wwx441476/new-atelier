@@ -15,6 +15,7 @@ import {
   FullscreenOutlined,
   PlusOutlined,
   ReloadOutlined,
+  RobotOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
@@ -22,12 +23,14 @@ import GuidePageShell from '../components/GuidePageShell';
 import PageHeader from '../components/PageHeader';
 import { dashboardApi } from '../api/dashboard';
 import type { DashboardScreen } from '../api/types';
+import DashboardGenerateModal from '../components/dashboard/DashboardGenerateModal';
 
 export default function DashboardListPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [list, setList] = useState<DashboardScreen[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
   const [form] = Form.useForm<DashboardScreen>();
 
   const load = useCallback(async () => {
@@ -138,6 +141,9 @@ export default function DashboardListPage() {
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             新建大屏
           </Button>
+          <Button icon={<RobotOutlined />} onClick={() => setGenerateOpen(true)}>
+            AI 生成
+          </Button>
           <Button icon={<ReloadOutlined />} onClick={() => void load()}>
             刷新
           </Button>
@@ -180,6 +186,16 @@ export default function DashboardListPage() {
             </Form.Item>
           </Form>
         </Modal>
+
+        <DashboardGenerateModal
+          open={generateOpen}
+          onClose={() => setGenerateOpen(false)}
+          onGenerated={async (dashboardId) => {
+            setGenerateOpen(false);
+            await load();
+            navigate(`/dashboards/${dashboardId}/edit`);
+          }}
+        />
       </div>
     </GuidePageShell>
   );

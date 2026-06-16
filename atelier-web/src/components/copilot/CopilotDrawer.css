@@ -265,7 +265,16 @@
 
 .copilot-text-block {
   margin: 0 0 10px;
-  white-space: pre-wrap;
+  line-height: 1.65;
+}
+
+.copilot-text-line {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.copilot-text-line:last-child {
+  margin-bottom: 0;
 }
 
 .copilot-message-content p {
