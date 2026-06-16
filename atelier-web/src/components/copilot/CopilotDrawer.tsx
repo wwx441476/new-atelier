@@ -13,6 +13,8 @@ import { copilotApi } from '../../api/copilot';
 import { settingsApi } from '../../api/settings';
 import type {
   CopilotActionResult,
+  CopilotActivePlan,
+  CopilotPlaybook,
   CopilotSqlQueryResult,
   CopilotWarningHitResult as CopilotWarningHitResultData,
   CopilotWarningJobResult,
@@ -21,6 +23,7 @@ import type {
 } from '../../api/types';
 import { formatCopilotReply, copilotToolLabel } from '../../utils/copilotReplyUtils';
 import { ONBOARDING_STEPS } from '../../guide/steps';
+import CopilotPlanPanel from './CopilotPlanPanel';
 import CopilotMessageContent from './CopilotMessageContent';
 import CopilotQueryResult from './CopilotQueryResult';
 import CopilotWarningHitResultCard from './CopilotWarningHitResult';
@@ -60,6 +63,9 @@ interface DisplayMessage {
   content: string;
   images?: string[];
   actions?: CopilotActionResult[];
+  plan?: CopilotActivePlan;
+  matchedPlaybooks?: CopilotPlaybook[];
+  suggestSavePlaybook?: boolean;
   error?: boolean;
 }
 
@@ -148,6 +154,7 @@ export default function CopilotDrawer() {
   const [attachments, setAttachments] = useState<string[]>([]);
   const [llmProfiles, setLlmProfiles] = useState<SemanticLlmProfileResponse[]>([]);
   const [selectedLlmProfileId, setSelectedLlmProfileId] = useState<string>();
+  const [activePlan, setActivePlan] = useState<CopilotActivePlan | undefined>();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imeComposingRef = useRef(false);
@@ -261,7 +268,10 @@ export default function CopilotDrawer() {
     }
   }, [open, stopVoiceInput]);
 
-  const executeChat = async (history: DisplayMessage[]) => {
+  const executeChat = async (
+    history: DisplayMessage[],
+    options?: { userText?: string; plan?: CopilotActivePlan; playbookId?: string },
+  ) => {
     setLoading(true);
     try {
       const response = await copilotApi.chat({
@@ -269,7 +279,14 @@ export default function CopilotDrawer() {
         currentPage: location.pathname,
         dryRun,
         llmProfileId: selectedLlmProfileId,
+        activePlan: options?.plan ?? activePlan,
+        playbookId: options?.playbookId,
       });
+      if (response.plan) {
+        setActivePlan(response.plan);
+      } else if (response.planCompleted) {
+        setActivePlan(undefined);
+      }
       setMessages((prev) => [
         ...prev,
         {
@@ -277,6 +294,9 @@ export default function CopilotDrawer() {
           role: 'assistant',
           content: formatCopilotReply(response.reply || '已完成。'),
           actions: response.actions,
+          plan: response.plan,
+          matchedPlaybooks: response.matchedPlaybooks,
+          suggestSavePlaybook: response.suggestSavePlaybook,
         },
       ]);
     } catch (err) {
@@ -293,6 +313,55 @@ export default function CopilotDrawer() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const continuePlan = async () => {
+    if (!activePlan || loading) {
+      return;
+    }
+    const history = [
+      ...messages,
+      {
+        id: createId(),
+        role: 'user' as const,
+        content: '继续执行下一步',
+      },
+    ];
+    setMessages(history);
+    await executeChat(history, { plan: activePlan, userText: '继续执行下一步' });
+  };
+
+  const usePlaybook = async (playbookId: string) => {
+    if (loading) {
+      return;
+    }
+    try {
+      const plan = await copilotApi.activatePlaybook(playbookId);
+      setActivePlan(plan);
+      const history = [
+        ...messages,
+        {
+          id: createId(),
+          role: 'user' as const,
+          content: `使用技能「${plan.playbookName ?? '已选技能'}」开始执行`,
+        },
+      ];
+      setMessages(history);
+      await executeChat(history, { plan, playbookId });
+    } catch {
+      /* handled by interceptor */
+    }
+  };
+
+  const savePlanAsPlaybook = async (name: string, plan: CopilotActivePlan) => {
+    await copilotApi.savePlaybookFromPlan({
+      name,
+      code: `playbook-${Date.now().toString(36)}`,
+      description: `由 Copilot 任务沉淀：${name}`,
+      triggerKeywords: [name.replace(/技能|大屏/g, '').trim()].filter(Boolean),
+      plan,
+    });
+    setActivePlan(undefined);
   };
 
   const sendMessage = async (text: string, images: string[] = attachments) => {
@@ -410,6 +479,16 @@ export default function CopilotDrawer() {
                 ) : (
                   <>
                     <CopilotMessageContent content={message.content} />
+                    <CopilotPlanPanel
+                      plan={message.plan}
+                      matchedPlaybooks={message.matchedPlaybooks}
+                      suggestSave={message.suggestSavePlaybook}
+                      onContinue={() => void continuePlan()}
+                      onUsePlaybook={(id) => void usePlaybook(id)}
+                      onSavePlaybook={(name) =>
+                        message.plan ? savePlanAsPlaybook(name, message.plan) : Promise.resolve()
+                      }
+                    />
                     {message.actions && message.actions.length > 0 && (
                       <div className="copilot-actions">
                         {message.actions.map((action, actionIndex) => (

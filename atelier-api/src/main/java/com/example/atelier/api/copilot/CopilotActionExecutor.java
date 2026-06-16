@@ -45,6 +45,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 
 @Component
 public class CopilotActionExecutor {
@@ -165,7 +166,41 @@ public class CopilotActionExecutor {
                 .comments(text(params, "comments"))
                 .build();
         MetaTable saved = metadataService.saveTable(table);
-        return success("create_meta_table", "已创建元数据表 " + saved.getTableCode(), saved);
+        List<MetaTableField> explicitFields = readMetaFields(params.get("fields"), saved.getId());
+        for (MetaTableField field : explicitFields) {
+            metadataService.saveField(field);
+        }
+        int synced = metadataService.syncFieldsFromPhysicalTable(saved.getId());
+        MetaTable result = metadataService.getTable(saved.getId()).orElse(saved);
+        String message = "已创建元数据表 " + saved.getTableCode();
+        int fieldCount = result.getFields() != null ? result.getFields().size() : 0;
+        if (fieldCount > 0) {
+            message += "，含 " + fieldCount + " 个字段";
+        } else if (synced == 0 && explicitFields.isEmpty()) {
+            message += "（物理表未找到或未同步到字段，请检查 tableCode/schema 或使用 import_meta_tables）";
+        }
+        return success("create_meta_table", message, result);
+    }
+
+    private List<MetaTableField> readMetaFields(JsonNode node, String tableId) {
+        List<MetaTableField> fields = new ArrayList<>();
+        if (node == null || !node.isArray()) {
+            return fields;
+        }
+        int sort = 1;
+        for (JsonNode item : node) {
+            fields.add(MetaTableField.builder()
+                    .tableId(tableId)
+                    .fieldCode(requiredText(item, "fieldCode"))
+                    .fieldName(text(item, "fieldName", requiredText(item, "fieldCode")))
+                    .fieldType(text(item, "fieldType", "VARCHAR"))
+                    .fieldLength(intOrNull(item, "fieldLength"))
+                    .fieldPrecision(intOrNull(item, "fieldPrecision"))
+                    .nullable(!item.has("nullable") || item.get("nullable").asBoolean(true))
+                    .sort(intOrNull(item, "sort") != null ? intOrNull(item, "sort") : sort++)
+                    .build());
+        }
+        return fields;
     }
 
     private CopilotActionResult importMetaTables(JsonNode params) {
@@ -226,26 +261,88 @@ public class CopilotActionExecutor {
     }
 
     private CopilotActionResult createMetric(JsonNode params) {
+        MetricType type = parseMetricType(text(params, "type", "TABLE"));
+        String tableCode = text(params, "tableCode");
+        String fieldCode = text(params, "fieldCode");
+        String formula = text(params, "formula");
+
+        if (type == MetricType.COMPOSITE && (formula == null || formula.isEmpty())) {
+            if (tableCode != null && fieldCode != null) {
+                type = MetricType.TABLE;
+            } else {
+                throw new AtelierException("复合指标必须填写 formula（如 revenue - cost），"
+                        + "单表聚合请使用 type=TABLE 并指定 tableCode、fieldCode、aggregation");
+            }
+        }
+        if (type == MetricType.TABLE) {
+            if (tableCode == null || tableCode.isEmpty()) {
+                throw new AtelierException("TABLE 类型指标缺少 tableCode");
+            }
+            if (fieldCode == null || fieldCode.isEmpty()) {
+                throw new AtelierException("TABLE 类型指标缺少 fieldCode");
+            }
+        }
+
+        List<DimensionBinding> dimensions = normalizeMetricDimensions(
+                readDimensionBindings(params.get("dimensions")), tableCode);
+
         MetricDefinition metric = MetricDefinition.builder()
                 .code(requiredText(params, "code"))
                 .name(requiredText(params, "name"))
                 .catalogCode(text(params, "catalogCode"))
-                .type(parseMetricType(text(params, "type", "TABLE")))
+                .type(type)
                 .datasourceId(requiredText(params, "datasourceId"))
                 .modelCode(text(params, "modelCode"))
-                .tableCode(text(params, "tableCode"))
-                .fieldCode(text(params, "fieldCode"))
+                .tableCode(tableCode)
+                .fieldCode(fieldCode)
                 .fieldName(text(params, "fieldName"))
                 .expression(text(params, "expression"))
                 .datasetSql(text(params, "datasetSql"))
-                .formula(text(params, "formula"))
-                .aggregation(parseAggregation(text(params, "aggregation", "SUM")))
-                .alias(text(params, "alias"))
+                .formula(type == MetricType.COMPOSITE ? formula : null)
+                .aggregation(type == MetricType.TABLE
+                        ? parseAggregation(text(params, "aggregation", "SUM"))
+                        : null)
+                .alias(text(params, "alias", text(params, "code")))
                 .description(text(params, "description"))
-                .dimensions(readDimensionBindings(params.get("dimensions")))
+                .dimensions(dimensions)
                 .build();
         MetricDefinition saved = metricDefinitionService.save(metric);
         return success("create_metric", "已创建指标 " + saved.getCode(), saved);
+    }
+
+    private List<DimensionBinding> normalizeMetricDimensions(List<DimensionBinding> bindings, String tableCode) {
+        if (bindings == null || bindings.isEmpty() || tableCode == null || tableCode.isEmpty()) {
+            return bindings != null ? bindings : new ArrayList<>();
+        }
+        Set<String> tableFieldCodes = resolveTableFieldCodes(tableCode);
+        if (tableFieldCodes.isEmpty()) {
+            return bindings;
+        }
+        List<DimensionBinding> valid = new ArrayList<>();
+        for (DimensionBinding binding : bindings) {
+            if (binding.getFieldCode() != null
+                    && tableFieldCodes.contains(binding.getFieldCode().toLowerCase())) {
+                valid.add(binding);
+            }
+        }
+        return valid;
+    }
+
+    private Set<String> resolveTableFieldCodes(String tableCode) {
+        Set<String> codes = new java.util.HashSet<>();
+        for (MetaTable table : metadataService.listTables()) {
+            if (table.getTableCode() != null
+                    && table.getTableCode().equalsIgnoreCase(tableCode)
+                    && table.getId() != null) {
+                for (MetaTableField field : metadataService.listFields(table.getId())) {
+                    if (field.getFieldCode() != null) {
+                        codes.add(field.getFieldCode().toLowerCase());
+                    }
+                }
+                break;
+            }
+        }
+        return codes;
     }
 
     private CopilotActionResult executeWriteSql(JsonNode params) {

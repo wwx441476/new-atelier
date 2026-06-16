@@ -477,6 +477,43 @@ export interface CopilotChatRequest {
   currentPage?: string;
   dryRun?: boolean;
   llmProfileId?: string;
+  activePlan?: CopilotActivePlan;
+  playbookId?: string;
+}
+
+export interface CopilotPlanStep {
+  id?: string;
+  title: string;
+  tool?: string;
+  status?: 'pending' | 'running' | 'done' | 'failed' | string;
+  description?: string;
+}
+
+export interface CopilotActivePlan {
+  planId?: string;
+  playbookId?: string;
+  playbookName?: string;
+  steps?: CopilotPlanStep[];
+  currentStepIndex?: number;
+  completed?: boolean;
+}
+
+export interface CopilotPlaybookStep {
+  title: string;
+  tool?: string;
+  description?: string;
+  order?: number;
+}
+
+export interface CopilotPlaybook {
+  id?: string;
+  code: string;
+  name: string;
+  description?: string;
+  triggerKeywords?: string[];
+  steps?: CopilotPlaybookStep[];
+  enabled?: boolean;
+  usageCount?: number;
 }
 
 export interface CopilotSqlQueryResult extends QueryResult {
@@ -497,6 +534,10 @@ export interface CopilotChatResponse {
   reply: string;
   actions?: CopilotActionResult[];
   workspaceSummary?: string;
+  plan?: CopilotActivePlan;
+  planCompleted?: boolean;
+  matchedPlaybooks?: CopilotPlaybook[];
+  suggestSavePlaybook?: boolean;
 }
 
 export interface CopilotTranscribeRequest {

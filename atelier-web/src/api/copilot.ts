@@ -1,8 +1,10 @@
-import client from './client';
+import client, { deleteData, getData, postData } from './client';
 import type {
   ApiResponse,
+  CopilotActivePlan,
   CopilotChatRequest,
   CopilotChatResponse,
+  CopilotPlaybook,
   CopilotTranscribeRequest,
   CopilotTranscribeResponse,
 } from './types';
@@ -25,4 +27,15 @@ export const copilotApi = {
     );
     return res.data.data;
   },
+  listPlaybooks: () => getData<CopilotPlaybook[]>('/copilot/playbooks'),
+  savePlaybook: (data: CopilotPlaybook) => postData<CopilotPlaybook>('/copilot/playbooks', data),
+  savePlaybookFromPlan: (data: {
+    code?: string;
+    name: string;
+    description?: string;
+    triggerKeywords?: string[];
+    plan: CopilotActivePlan;
+  }) => postData<CopilotPlaybook>('/copilot/playbooks/from-plan', data),
+  activatePlaybook: (id: string) => postData<CopilotActivePlan>(`/copilot/playbooks/${id}/activate`),
+  deletePlaybook: (code: string) => deleteData<void>(`/copilot/playbooks/${code}`),
 };

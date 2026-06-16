@@ -24,4 +24,10 @@ public class CopilotChatRequest {
 
     /** 指定 Copilot 使用的 LLM 档案 id；为空时使用工作区激活档案 */
     private String llmProfileId;
+
+    /** 进行中的多步计划（继续执行时传入） */
+    private CopilotActivePlan activePlan;
+
+    /** 指定使用的技能 id */
+    private String playbookId;
 }

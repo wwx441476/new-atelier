@@ -1,13 +1,17 @@
 package com.example.atelier.api.copilot;
 
 import com.example.atelier.domain.copilot.CopilotActionResult;
+import com.example.atelier.domain.copilot.CopilotActivePlan;
 import com.example.atelier.domain.copilot.CopilotChatMessage;
 import com.example.atelier.domain.copilot.CopilotChatRequest;
 import com.example.atelier.domain.copilot.CopilotChatResponse;
+import com.example.atelier.domain.copilot.CopilotPlanStep;
+import com.example.atelier.domain.copilot.CopilotPlaybook;
 import com.example.atelier.domain.copilot.CopilotSqlQueryResult;
 import com.example.atelier.domain.query.SqlExecuteResult;
 import com.example.atelier.domain.settings.SemanticLlmConfig;
 import com.example.atelier.infra.exception.AtelierException;
+import com.example.atelier.infra.persistence.service.CopilotPlaybookService;
 import com.example.atelier.warning.evaluator.LlmChatClient;
 import com.example.atelier.warning.service.SemanticLlmConfigLoader;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -38,16 +42,23 @@ public class CopilotService {
                     + "使用 execute_write_sql；当用户要在物理库新建表时，使用 create_physical_table（区别于 create_meta_table 元数据登记）。"
                     + "从工作区 datasources/metaTables 推断 datasourceId；H2 演示库 orders 通常在 PUBLIC schema，SQL 可写 PUBLIC.orders。\n"
                     + "仅返回 JSON，格式严格为：\n"
-                    + "{\"reply\":\"给用户的中文回复\",\"actions\":[{\"tool\":\"工具名\",\"params\":{...}}]}\n"
-                    + "若无需要执行的操作，actions 为空数组。\n"
+                    + "{\"reply\":\"给用户的中文回复\",\"plan\":[{\"id\":\"s1\",\"title\":\"步骤名\",\"tool\":\"工具名可选\",\"status\":\"pending\"}],\"actions\":[{\"tool\":\"工具名\",\"params\":{...}}]}\n"
+                    + "复杂任务（3步以上，如建表+元数据+指标+大屏）必须：\n"
+                    + "1. plan 列出全部步骤，每步 title 面向用户；status 初始为 pending\n"
+                    + "2. actions 仅包含当前第1步的操作（每轮最多2个工具）；用户说「继续/下一步」时执行 plan 中下一个 pending 步骤\n"
+                    + "3. reply 用编号说明整体计划与当前进度，不要输出原始 JSON 结构\n"
+                    + "若提供了【已沉淀技能】或【进行中计划】，优先按其中步骤顺序执行。\n"
+                    + "若无需要执行的操作，actions 为空数组；纯问答时 plan 可省略。\n"
                     + "可用工具及 params：\n"
                     + "1. create_datasource: id,name,jdbcUrl,username,password,dbType(H2|MYSQL|POSTGRESQL|ORACLE),enabled\n"
-                    + "2. create_meta_table: tableCode,tableName,datasourceId,schemaCode?,catalogCode?,comments?\n"
-                    + "3. import_meta_tables: datasourceId,schemaCode?,catalogCode?,tableNames[](从物理库同步)\n"
+                    + "2. create_meta_table: tableCode,tableName,datasourceId,schemaCode?,catalogCode?,comments?,fields?[{fieldCode,fieldName,fieldType?,sort?}] — 登记后会自动从物理库同步字段\n"
+                    + "3. import_meta_tables: datasourceId,schemaCode?,catalogCode?,tableNames[](从物理库同步，推荐在 create_physical_table 之后使用)\n"
                     + "4. create_meta_field: tableId,fieldCode,fieldName,fieldType?,sort?\n"
                     + "5. create_dimension: code,name,type(LIST|TREE|TIME_DIM),datasourceId,valueSource(MANUAL|TABLE),fields?[]\n"
                     + "6. create_dimension_value: dimensionId,code,name,parentCode?,sort?\n"
-                    + "7. create_metric: code,name,type(TABLE|SQL|COMPOSITE),datasourceId,tableCode,fieldCode,aggregation(SUM|COUNT|AVG|...),dimensions?[{dimensionCode,fieldCode}]\n"
+                    + "7. create_metric: code,name,type(TABLE|SQL|COMPOSITE),datasourceId,tableCode,fieldCode,aggregation(SUM|COUNT|AVG|...),dimensions?[{dimensionCode,fieldCode}] — "
+                    + "单表聚合用 TABLE（须 tableCode+fieldCode+aggregation）；仅多指标运算用 COMPOSITE（须 formula）；"
+                    + "dimensions 的 fieldCode 必须是目标表实际存在的列，禁止绑定表中不存在的维度字段（如无 fiscal_year 列则不要绑 year 维度）\n"
                     + "8. create_warning_rule: code,name,ruleType(METRIC|SEMANTIC|COMPOSITE),metricCodes[],expression,warningLevel?,enabled?\n"
                     + "9. run_warning_rule: ruleId?|ruleCode?|ruleName?,pageIndex?(默认1),pageSize?(默认20),keywordOnly?(默认true) — 异步执行预警预览，立即返回任务\n"
                     + "10. get_warning_job_result: jobId — 获取预警任务当前页的命中行（从 recentWarningJobs 或上轮 run_warning_rule 返回的 jobId 取值）\n"
@@ -61,6 +72,7 @@ public class CopilotService {
                     + "指标绑定用 dataSource.metricCodes 数组与 valueField；预警用 dataSource.ruleId；"
                     + "layout 必须是对象 {width,height,gridCols,rowHeight,theme}，禁止数组；组件放在 widgets[]，不要放进 layout\n"
                     + "create_physical_table 的 params 键名必须完整：datasourceId,tableName,schema?,ifNotExists?,columns[{name,type,...}]，禁止省略 columns\n"
+                    + "create_physical_table 完成后登记元数据时，优先 import_meta_tables 同步字段；若用 create_meta_table 须确保 tableCode 与物理表一致且 schema 正确\n"
                     + "当用户要执行/预览/跑一下某条预警规则时，使用 run_warning_rule；params 必须包含 ruleId、ruleCode 或 ruleName 之一，"
                     + "禁止留空。用户通过截图/名称指代规则时，从 warningRules 匹配 name 填入 ruleName（如「学杂费项目备注烟酒」），"
                     + "或填入对应 code（如 tuition_remark_tobacco），不要同步等待结果。\n"
@@ -76,16 +88,25 @@ public class CopilotService {
     private final CopilotWorkspaceContextBuilder contextBuilder;
     private final CopilotActionExecutor actionExecutor;
     private final CopilotWarningRuleResolver warningRuleResolver;
+    private final CopilotPlaybookMatcher playbookMatcher;
+    private final CopilotPlanOrchestrator planOrchestrator;
+    private final CopilotPlaybookService playbookService;
     private final LlmChatClient chatClient = new LlmChatClient();
 
     public CopilotService(SemanticLlmConfigLoader llmConfigLoader,
                           CopilotWorkspaceContextBuilder contextBuilder,
                           CopilotActionExecutor actionExecutor,
-                          CopilotWarningRuleResolver warningRuleResolver) {
+                          CopilotWarningRuleResolver warningRuleResolver,
+                          CopilotPlaybookMatcher playbookMatcher,
+                          CopilotPlanOrchestrator planOrchestrator,
+                          CopilotPlaybookService playbookService) {
         this.llmConfigLoader = llmConfigLoader;
         this.contextBuilder = contextBuilder;
         this.actionExecutor = actionExecutor;
         this.warningRuleResolver = warningRuleResolver;
+        this.playbookMatcher = playbookMatcher;
+        this.planOrchestrator = planOrchestrator;
+        this.playbookService = playbookService;
     }
 
     public CopilotChatResponse chat(CopilotChatRequest request) {
@@ -103,16 +124,22 @@ public class CopilotService {
         List<String> latestImages = extractLatestUserImages(request.getMessages());
         validateUserImages(request.getMessages(), latestImages);
         List<String> images = extractConversationImages(request.getMessages());
-        String userPrompt = buildUserPrompt(request, workspaceSummary, images);
-        log.info("Copilot 请求: page={}, messages={}, images={}",
-                request.getCurrentPage(), request.getMessages().size(), images.size());
+
+        CopilotActivePlan incomingPlan = resolveIncomingPlan(request);
+        String lastUserText = extractLastUserText(request.getMessages());
+        List<CopilotPlaybook> matchedPlaybooks = playbookMatcher.match(lastUserText, 3);
+
+        String userPrompt = buildUserPrompt(request, workspaceSummary, images, incomingPlan, matchedPlaybooks);
+        log.info("Copilot 请求: page={}, messages={}, images={}, planStep={}",
+                request.getCurrentPage(), request.getMessages().size(), images.size(),
+                incomingPlan != null ? incomingPlan.getCurrentStepIndex() : null);
 
         String content = chatClient.chat(llmConfig, SYSTEM_PROMPT, userPrompt, images, LlmChatClient.AGENT_MAX_TOKENS);
-        CopilotResponseParser.CopilotParsedResponse plan = CopilotResponseParser.parse(content);
+        CopilotResponseParser.CopilotParsedResponse parsed = CopilotResponseParser.parse(content);
 
         List<CopilotActionResult> actionResults = new ArrayList<>();
-        if (plan.getActions() != null) {
-            for (JsonNode action : plan.getActions()) {
+        if (parsed.getActions() != null) {
+            for (JsonNode action : parsed.getActions()) {
                 String tool = action.path("tool").asText("");
                 JsonNode params = enrichActionParams(tool, action.path("params"), request);
                 if (request.isDryRun()) {
@@ -123,7 +150,10 @@ public class CopilotService {
             }
         }
 
-        String reply = plan.getReply();
+        List<CopilotPlanStep> parsedSteps = planOrchestrator.parsePlanSteps(parsed.getPlan());
+        CopilotActivePlan activePlan = planOrchestrator.mergePlan(parsedSteps, incomingPlan, actionResults);
+
+        String reply = parsed.getReply();
         if (!request.isDryRun() && actionResults.stream().anyMatch(CopilotActionResult::isSuccess)) {
             workspaceSummary = contextBuilder.buildSummary();
             String supplement = buildPostActionSupplement(actionResults, workspaceSummary);
@@ -132,18 +162,89 @@ public class CopilotService {
             }
         }
 
+        boolean planCompleted = activePlan != null && Boolean.TRUE.equals(activePlan.getCompleted());
+        boolean suggestSave = planCompleted && activePlan.getPlaybookId() == null;
+
         return CopilotChatResponse.builder()
                 .reply(reply)
                 .actions(actionResults)
                 .workspaceSummary(workspaceSummary)
+                .plan(activePlan)
+                .planCompleted(planCompleted)
+                .matchedPlaybooks(matchedPlaybooks.isEmpty() ? null : matchedPlaybooks)
+                .suggestSavePlaybook(suggestSave)
                 .build();
     }
 
-    private String buildUserPrompt(CopilotChatRequest request, String workspaceSummary, List<String> images) {
+    private CopilotActivePlan resolveIncomingPlan(CopilotChatRequest request) {
+        if (request.getActivePlan() != null) {
+            return request.getActivePlan();
+        }
+        if (request.getPlaybookId() != null && !request.getPlaybookId().trim().isEmpty()) {
+            return playbookService.getById(request.getPlaybookId().trim())
+                    .map(playbook -> {
+                        playbookService.incrementUsage(playbook.getId());
+                        return playbookMatcher.toActivePlan(playbook);
+                    })
+                    .orElse(null);
+        }
+        return null;
+    }
+
+    private String extractLastUserText(List<CopilotChatMessage> messages) {
+        if (messages == null) {
+            return "";
+        }
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            CopilotChatMessage message = messages.get(i);
+            if ("user".equalsIgnoreCase(message.getRole()) && message.getContent() != null) {
+                return message.getContent();
+            }
+        }
+        return "";
+    }
+
+    private String buildUserPrompt(CopilotChatRequest request,
+                                   String workspaceSummary,
+                                   List<String> images,
+                                   CopilotActivePlan activePlan,
+                                   List<CopilotPlaybook> matchedPlaybooks) {
         StringBuilder builder = new StringBuilder();
         builder.append("【当前页面】").append(request.getCurrentPage() != null ? request.getCurrentPage() : "未知")
                 .append('\n');
         builder.append("【工作区配置】\n").append(workspaceSummary).append('\n');
+        if (matchedPlaybooks != null && !matchedPlaybooks.isEmpty()) {
+            builder.append("【已沉淀技能（可参考步骤顺序）】\n");
+            for (CopilotPlaybook playbook : matchedPlaybooks) {
+                builder.append("- ").append(playbook.getName()).append(" (").append(playbook.getCode()).append("): ");
+                if (playbook.getSteps() != null) {
+                    for (int i = 0; i < playbook.getSteps().size(); i++) {
+                        if (i > 0) {
+                            builder.append(" → ");
+                        }
+                        builder.append(playbook.getSteps().get(i).getTitle());
+                    }
+                }
+                builder.append('\n');
+            }
+        }
+        if (activePlan != null && activePlan.getSteps() != null && !activePlan.getSteps().isEmpty()) {
+            builder.append("【进行中计划】\n");
+            if (activePlan.getPlaybookName() != null) {
+                builder.append("技能: ").append(activePlan.getPlaybookName()).append('\n');
+            }
+            for (int i = 0; i < activePlan.getSteps().size(); i++) {
+                CopilotPlanStep step = activePlan.getSteps().get(i);
+                builder.append(i + 1).append(". [").append(step.getStatus()).append("] ")
+                        .append(step.getTitle());
+                if (step.getTool() != null) {
+                    builder.append(" (").append(step.getTool()).append(')');
+                }
+                builder.append('\n');
+            }
+            int nextIndex = activePlan.getCurrentStepIndex() != null ? activePlan.getCurrentStepIndex() : 0;
+            builder.append("当前应执行第 ").append(nextIndex + 1).append(" 步；actions 仅包含该步操作。\n");
+        }
         if (request.isDryRun()) {
             builder.append("【模式】仅规划，不要真正执行（actions 仍须完整列出计划；execute_sql/execute_write_sql 须写出完整 sql；"
                     + "create_physical_table 须写出完整 columns）\n");
@@ -345,7 +446,9 @@ public class CopilotService {
 
     private String buildPostActionSupplement(List<CopilotActionResult> actionResults, String workspaceSummary) {
         boolean imported = actionResults.stream()
-                .anyMatch(result -> result.isSuccess() && "import_meta_tables".equals(result.getTool()));
+                .anyMatch(result -> result.isSuccess()
+                        && ("import_meta_tables".equals(result.getTool())
+                        || "create_meta_table".equals(result.getTool())));
         if (!imported) {
             return null;
         }

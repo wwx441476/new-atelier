@@ -33,7 +33,7 @@ public final class CopilotResponseParser {
 
     public static CopilotParsedResponse parse(String content) {
         if (content == null || content.trim().isEmpty()) {
-            return new CopilotParsedResponse("已完成。", new ArrayList<JsonNode>());
+            return new CopilotParsedResponse("已完成。", new ArrayList<JsonNode>(), null);
         }
         String trimmed = unwrapMarkdownCodeFence(content.trim());
         for (String candidate : buildCandidates(trimmed)) {
@@ -69,19 +69,41 @@ public final class CopilotResponseParser {
                 actions.add(node);
             }
         }
-        return new CopilotParsedResponse(reply, actions);
+        JsonNode planNode = root.path("plan");
+        return new CopilotParsedResponse(reply, actions, planNode.isArray() ? planNode : null);
     }
 
     private static CopilotParsedResponse recoverPartial(String trimmed) {
         String reply = extractReplyText(trimmed);
         List<JsonNode> actions = extractActions(trimmed);
+        JsonNode planNode = extractPlan(trimmed);
         if (reply == null || reply.isEmpty()) {
             reply = actions.isEmpty()
                     ? "助手响应格式异常，请简化描述后重试，或点击「继续」。"
                     : "已解析配置方案，正在执行下方操作…";
         }
         log.warn("Copilot 响应采用容错解析: replyLen={}, actions={}", reply.length(), actions.size());
-        return new CopilotParsedResponse(reply, actions);
+        return new CopilotParsedResponse(reply, actions, planNode);
+    }
+
+    private static JsonNode extractPlan(String content) {
+        int planIndex = content.indexOf("\"plan\"");
+        if (planIndex < 0) {
+            return null;
+        }
+        int arrayStart = content.indexOf('[', planIndex);
+        if (arrayStart < 0) {
+            return null;
+        }
+        String arrayPart = extractBalancedArray(content, arrayStart);
+        if (arrayPart == null) {
+            return null;
+        }
+        try {
+            return MAPPER.readTree(arrayPart);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static String extractReplyText(String content) {
@@ -219,10 +241,12 @@ public final class CopilotResponseParser {
     public static final class CopilotParsedResponse {
         private final String reply;
         private final List<JsonNode> actions;
+        private final JsonNode plan;
 
-        public CopilotParsedResponse(String reply, List<JsonNode> actions) {
+        public CopilotParsedResponse(String reply, List<JsonNode> actions, JsonNode plan) {
             this.reply = reply;
             this.actions = actions;
+            this.plan = plan;
         }
 
         public String getReply() {
@@ -231,6 +255,10 @@ public final class CopilotResponseParser {
 
         public List<JsonNode> getActions() {
             return actions;
+        }
+
+        public JsonNode getPlan() {
+            return plan;
         }
     }
 }

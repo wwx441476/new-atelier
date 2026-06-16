@@ -48,4 +48,7 @@ public interface MetadataService {
 
     /** 在目标数据源执行增量加字段 DDL */
     void executeSyncTable(String tableId);
+
+    /** 从物理库同步缺失字段到已有元数据表，返回新增字段数 */
+    int syncFieldsFromPhysicalTable(String tableId);
 }

@@ -33,6 +33,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -233,8 +234,16 @@ public class MetadataServiceImpl implements MetadataService {
             String tableCode = normalizeTableCode(physicalName);
             validateTableCode(tableCode);
 
-            if (findExistingTable(datasourceId, schemaCode, tableCode).isPresent()) {
-                skipped.add(physicalName);
+            Optional<MetaTableEntity> existing = findExistingTable(datasourceId, schemaCode, tableCode);
+            if (existing.isPresent()) {
+                MetaTableEntity existingEntity = existing.get();
+                int synced = syncMissingFieldsFromPhysicalTable(
+                        datasourceId, schemaCode, physicalName, existingEntity.getPkMetaTable());
+                if (synced > 0) {
+                    imported.add(toTableWithFields(existingEntity));
+                } else {
+                    skipped.add(physicalName);
+                }
                 continue;
             }
 
@@ -272,11 +281,38 @@ public class MetadataServiceImpl implements MetadataService {
 
     private void importFieldsFromPhysicalTable(String datasourceId, String schema, String tableName,
                                                String metaTableId) {
+        syncMissingFieldsFromPhysicalTable(datasourceId, schema, tableName, metaTableId);
+    }
+
+    @Override
+    @Transactional
+    public int syncFieldsFromPhysicalTable(String tableId) {
+        MetaTableEntity entity = resolveTableEntity(tableId)
+                .orElseThrow(() -> new AtelierException("元数据表不存在: " + tableId));
+        if (entity.getPkDatasource() == null || entity.getTableCode() == null) {
+            return 0;
+        }
+        String schema = normalizeSchemaCode(entity.getSchemaCode());
+        return syncMissingFieldsFromPhysicalTable(
+                entity.getPkDatasource(), schema, entity.getTableCode(), entity.getPkMetaTable());
+    }
+
+    private int syncMissingFieldsFromPhysicalTable(String datasourceId, String schema, String tableName,
+                                                   String metaTableId) {
         List<DbColumnInfo> columns = databaseBrowserService.listColumns(datasourceId, schema, tableName);
-        int fallbackSort = 1;
+        if (columns == null || columns.isEmpty()) {
+            return 0;
+        }
+        Set<String> existingCodes = fieldRepository.findByPkMetaTableOrderBySortNoAsc(metaTableId).stream()
+                .map(MetaTableFieldEntity::getFieldCode)
+                .filter(code -> code != null && !code.trim().isEmpty())
+                .map(code -> code.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        int fallbackSort = nextSortNo(metaTableId);
+        int synced = 0;
         for (DbColumnInfo column : columns) {
             String fieldCode = normalizeFieldCode(column.getName());
-            if (fieldCode == null) {
+            if (fieldCode == null || existingCodes.contains(fieldCode.toLowerCase(Locale.ROOT))) {
                 continue;
             }
             int sortNo = column.getOrdinalPosition() != null && column.getOrdinalPosition() > 0
@@ -296,8 +332,11 @@ public class MetadataServiceImpl implements MetadataService {
                     .sortNo(sortNo)
                     .build();
             fieldRepository.save(fieldEntity);
-            fallbackSort++;
+            existingCodes.add(fieldCode.toLowerCase(Locale.ROOT));
+            fallbackSort = Math.max(fallbackSort, sortNo) + 1;
+            synced++;
         }
+        return synced;
     }
 
     private Optional<MetaTableEntity> findExistingTable(String datasourceId, String schemaCode, String tableCode) {
