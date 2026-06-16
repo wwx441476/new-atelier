@@ -174,7 +174,7 @@ public class WarningRuleApiIntegrationTest {
         assertNotNull(preview);
         assertTrue(preview.getSql().contains("dept_code IN ('002')"));
         assertEquals(2, preview.getTotal());
-        assertTrue(preview.getRows().stream().allMatch(r -> "002".equals(String.valueOf(r.get("dept")))));
+        assertTrue(preview.getRows().stream().allMatch(r -> "002".equals(String.valueOf(r.get("dept_code")))));
     }
 
     @Test

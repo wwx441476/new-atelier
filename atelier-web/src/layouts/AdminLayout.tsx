@@ -18,6 +18,7 @@ import {
   PartitionOutlined,
   LineChartOutlined,
   AlertOutlined,
+  DashboardOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
@@ -29,6 +30,7 @@ const menuIcons: Record<string, ReactNode> = {
   '/dimensions': <PartitionOutlined />,
   '/metrics': <LineChartOutlined />,
   '/warning-rules': <AlertOutlined />,
+  '/dashboards': <DashboardOutlined />,
 };
 
 function AdminLayoutInner() {
@@ -90,7 +92,7 @@ function AdminLayoutInner() {
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[location.pathname]}
+          selectedKeys={[location.pathname.startsWith('/dashboards') ? '/dashboards' : location.pathname]}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
           style={{ background: 'transparent', border: 'none' }}

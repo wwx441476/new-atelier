@@ -81,13 +81,30 @@ public class MetricQueryCompilerTest {
 
         CompiledQuery result = compiler.compile(request);
 
-        Assert.assertTrue(result.getSql().contains("M0.dept"));
+        Assert.assertTrue(result.getSql().contains("M0.dept_code"));
         Assert.assertTrue(result.getSql().contains("M0.profit"));
         Assert.assertTrue(result.getSql().contains("M1.cost"));
-        Assert.assertTrue(result.getSql().contains("M0.dept = M1.dept_code"));
-        Assert.assertTrue(result.getColumnLabels().containsKey("dept"));
+        Assert.assertTrue(result.getSql().contains("M0.dept_code = M1.dept_code"));
+        Assert.assertTrue(result.getColumnLabels().containsKey("dept_code"));
         Assert.assertTrue(result.getColumnLabels().containsKey("profit"));
         Assert.assertTrue(result.getColumnLabels().containsKey("cost"));
+    }
+
+    @Test
+    public void shouldCompileRevenueCostProfitTogether() {
+        MetricQueryRequest request = MetricQueryRequest.builder()
+                .metricCodes(Arrays.asList("revenue", "cost", "profit"))
+                .build();
+
+        CompiledQuery result = compiler.compile(request);
+        String sql = result.getSql();
+
+        Assert.assertTrue(sql.contains("M0.revenue"));
+        Assert.assertTrue(sql.contains("M1.cost"));
+        Assert.assertTrue(sql.contains("M2.profit"));
+        Assert.assertTrue(sql.contains("M0.dept_code = M2.dept_code"));
+        Assert.assertTrue(sql.contains("M0.fiscal_year = M2.fiscal_year"));
+        Assert.assertFalse(sql.contains("M2.year"));
     }
 
     @Test
@@ -112,7 +129,10 @@ public class MetricQueryCompilerTest {
             idx += needle.length();
         }
         Assert.assertEquals(2, filterCount);
-        Assert.assertFalse(sql.matches("(?s).*INNER JOIN.*WHERE fiscal_year IN.*"));
+        // 过滤应落在依赖子查询内，而非复合指标外层 JOIN 之后
+        int joinOnEnd = sql.lastIndexOf(" ON ");
+        int outerWhere = sql.indexOf(" WHERE ", joinOnEnd);
+        Assert.assertTrue(outerWhere < 0);
     }
 
     @Test

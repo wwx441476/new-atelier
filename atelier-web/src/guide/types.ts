@@ -3,7 +3,8 @@ export type OnboardingStepId =
   | 'metadata'
   | 'dimensions'
   | 'metrics'
-  | 'warning-rules';
+  | 'warning-rules'
+  | 'dashboards';
 
 export interface OnboardingStep {
   id: OnboardingStepId;

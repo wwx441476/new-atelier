@@ -553,3 +553,81 @@ export interface ConfigImportResult {
   skipped?: Record<string, number>;
   message?: string;
 }
+
+export type DashboardWidgetType =
+  | 'TITLE'
+  | 'METRIC_VALUE'
+  | 'METRIC_CHART'
+  | 'METRIC_TABLE'
+  | 'WARNING_STAT'
+  | 'WARNING_TABLE'
+  | 'SQL_VALUE'
+  | 'SQL_CHART'
+  | 'SQL_TABLE';
+
+export type DashboardQueryMode = 'SQL' | 'TABLE';
+
+export interface DashboardWidgetStyle {
+  fontSize?: number;
+  color?: string;
+  textAlign?: 'left' | 'center' | 'right';
+}
+
+export interface DashboardWidgetDataSource {
+  bindType?: 'METRIC' | 'WARNING' | 'SQL';
+  metricCodes?: string[];
+  valueField?: string;
+  categoryField?: string;
+  chartType?: 'bar' | 'line' | 'pie';
+  ruleId?: string;
+  datasourceId?: string;
+  queryMode?: DashboardQueryMode;
+  sql?: string;
+  schema?: string;
+  tableName?: string;
+  pageSize?: number;
+  filterGroups?: FilterGroupDto[];
+  /** 列字段显示名：字段 code → 展示标题 */
+  columnLabels?: Record<string, string>;
+  /** 字段值映射：字段 code → (原始值 → 展示名) */
+  valueMappings?: Record<string, Record<string, string>>;
+  /** 数值展示模板，{value} 为数值占位符，如 "{value}美元" */
+  valueFormat?: string;
+  valuePrefix?: string;
+  valueSuffix?: string;
+  decimalPlaces?: number;
+  useGrouping?: boolean;
+}
+
+export interface DashboardWidget {
+  id: string;
+  type: DashboardWidgetType;
+  title?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  content?: string;
+  style?: DashboardWidgetStyle;
+  dataSource?: DashboardWidgetDataSource;
+}
+
+export interface DashboardLayoutConfig {
+  width?: number;
+  height?: number;
+  backgroundColor?: string;
+  backgroundImage?: string;
+  gridCols?: number;
+  rowHeight?: number;
+  theme?: string;
+}
+
+export interface DashboardScreen {
+  id?: string;
+  code: string;
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  layout?: DashboardLayoutConfig;
+  widgets?: DashboardWidget[];
+}

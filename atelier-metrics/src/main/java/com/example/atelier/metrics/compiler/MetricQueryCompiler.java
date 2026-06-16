@@ -151,9 +151,6 @@ public class MetricQueryCompiler {
     }
 
     private String resolveSubqueryDimensionColumn(MetricDefinition metric, DimensionBinding dimension) {
-        if (metric.getType() == MetricType.COMPOSITE) {
-            return dimension.getDimensionCode();
-        }
         return dimension.getFieldCode();
     }
 

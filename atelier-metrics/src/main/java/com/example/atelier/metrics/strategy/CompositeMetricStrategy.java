@@ -42,7 +42,7 @@ public class CompositeMetricStrategy implements MetricCompileStrategy {
 
         if (metric.getDimensions() != null) {
             for (DimensionBinding dim : metric.getDimensions()) {
-                selectParts.add("T0." + dim.getFieldCode() + " AS " + quoteIdentifier(dim.getDimensionCode()));
+                selectParts.add("T0." + dim.getFieldCode());
             }
         }
 
@@ -74,10 +74,6 @@ public class CompositeMetricStrategy implements MetricCompileStrategy {
         return metric.getDimensions().stream()
                 .map(dim -> "T0." + dim.getFieldCode() + " = T" + index + "." + dim.getFieldCode())
                 .collect(Collectors.joining(" AND "));
-    }
-
-    private String quoteIdentifier(String identifier) {
-        return "\"" + identifier.replace("\"", "\"\"") + "\"";
     }
 
     private String qualifyFormula(String formula, List<String> depCodes, Map<String, MetricDefinition> deps) {

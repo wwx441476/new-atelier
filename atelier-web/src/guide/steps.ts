@@ -57,6 +57,17 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
       '支持数据预览，在发布前验证规则命中情况',
     ],
   },
+  {
+    id: 'dashboards',
+    path: '/dashboards',
+    menuLabel: '可视化大屏',
+    title: '设计可视化大屏',
+    summary: '拖拽布局，绑定指标与预警规则，构建数据驾驶舱并全屏演示。',
+    tips: [
+      '从组件库添加 KPI、图表、表格与预警组件',
+      '保存后可全屏演示，数据每 30 秒自动刷新',
+    ],
+  },
 ];
 
 export function getStepById(id: OnboardingStepId): OnboardingStep {
@@ -173,6 +184,24 @@ export function getTourStepsForPath(pathname: string): TourProps['steps'] {
         {
           title: '预览与发布',
           description: '通过数据预览验证规则命中情况，确认无误后启用规则。',
+          target: target('guide-main-content'),
+        },
+      ];
+    case '/dashboards':
+      return [
+        {
+          title: '可视化大屏',
+          description: '在此创建和管理数据大屏，将指标与预警结果可视化展示。',
+          target: target('guide-page-header'),
+        },
+        {
+          title: '新建大屏',
+          description: '创建大屏后进入设计器，从组件库拖拽 KPI、图表、表格等组件。',
+          target: target('guide-primary-action'),
+        },
+        {
+          title: '全屏演示',
+          description: '保存后可打开全屏演示页，适合投屏展示与监控值班。',
           target: target('guide-main-content'),
         },
       ];
