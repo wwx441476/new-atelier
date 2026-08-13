@@ -26,6 +26,8 @@ import {
   SwapOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../components/PageHeader';
+import FlowStructureReader from '../components/document/FlowStructureReader';
+import { scrollToPreviewBlocks } from '../components/document/scrollToPreviewBlock';
 import {
   DOCUMENT_COMPARE_MAX_FILE_BYTES,
   documentCompareApi,
@@ -64,39 +66,101 @@ function opLabel(type: DiffOpType): string {
   }
 }
 
-function TextHunkView({ hunks }: { hunks: TextHunk[] }) {
+function TextHunkView({
+  hunks,
+  onLocate,
+}: {
+  hunks: TextHunk[];
+  onLocate: (hunk: TextHunk) => void;
+}) {
   if (!hunks.length) {
     return <Empty description="无文字差异" />;
   }
   return (
     <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}>
-      {hunks.map((hunk, idx) => (
-        <div key={idx} style={{ marginBottom: 12, border: '1px solid #f0f0f0', borderRadius: 6 }}>
-          <div style={{ padding: '4px 8px', background: '#fafafa' }}>
-            <Tag color={OP_COLOR[hunk.type]}>{opLabel(hunk.type)}</Tag>
-            <Typography.Text type="secondary">
-              A@{hunk.oldStart} / B@{hunk.newStart}
-            </Typography.Text>
+      {hunks.map((hunk, idx) => {
+        const clickable =
+          (hunk.blockIdsA && hunk.blockIdsA.length > 0) ||
+          (hunk.blockIdsB && hunk.blockIdsB.length > 0);
+        return (
+          <div
+            key={idx}
+            role={clickable ? 'button' : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            onClick={() => {
+              if (clickable) {
+                onLocate(hunk);
+              } else {
+                message.info('该差异暂无预览锚点，请确认已用最新后端重新对比');
+              }
+            }}
+            onKeyDown={(e) => {
+              if (clickable && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                onLocate(hunk);
+              }
+            }}
+            style={{
+              marginBottom: 12,
+              border: '1px solid #f0f0f0',
+              borderRadius: 6,
+              cursor: 'pointer',
+            }}
+          >
+            <div style={{ padding: '4px 8px', background: '#fafafa' }}>
+              <Tag color={OP_COLOR[hunk.type]}>{opLabel(hunk.type)}</Tag>
+              <Typography.Text type="secondary">
+                A@{hunk.oldStart} / B@{hunk.newStart}
+                {clickable ? ' · 点击在上方预览中高亮' : ' · 无定位锚点'}
+              </Typography.Text>
+            </div>
+            <Row gutter={0}>
+              <Col span={12} style={{ borderRight: '1px solid #f0f0f0', background: '#fff5f5' }}>
+                {(hunk.oldLines || []).map((line, i) => (
+                  <div key={i} style={{ padding: '2px 8px', whiteSpace: 'pre-wrap' }}>
+                    - {line || ' '}
+                  </div>
+                ))}
+              </Col>
+              <Col span={12} style={{ background: '#f6ffed' }}>
+                {(hunk.newLines || []).map((line, i) => (
+                  <div key={i} style={{ padding: '2px 8px', whiteSpace: 'pre-wrap' }}>
+                    + {line || ' '}
+                  </div>
+                ))}
+              </Col>
+            </Row>
           </div>
-          <Row gutter={0}>
-            <Col span={12} style={{ borderRight: '1px solid #f0f0f0', background: '#fff5f5' }}>
-              {(hunk.oldLines || []).map((line, i) => (
-                <div key={i} style={{ padding: '2px 8px', whiteSpace: 'pre-wrap' }}>
-                  - {line || ' '}
-                </div>
-              ))}
-            </Col>
-            <Col span={12} style={{ background: '#f6ffed' }}>
-              {(hunk.newLines || []).map((line, i) => (
-                <div key={i} style={{ padding: '2px 8px', whiteSpace: 'pre-wrap' }}>
-                  + {line || ' '}
-                </div>
-              ))}
-            </Col>
-          </Row>
-        </div>
-      ))}
+        );
+      })}
     </div>
+  );
+}
+
+function UploadPane({
+  title,
+  fileList,
+  onChange,
+}: {
+  title: string;
+  fileList: UploadFile[];
+  onChange: (list: UploadFile[]) => void;
+}) {
+  return (
+    <Card size="small" title={title} style={{ marginBottom: 16 }}>
+      <Upload.Dragger
+        accept={ACCEPT}
+        maxCount={1}
+        fileList={fileList}
+        beforeUpload={() => false}
+        onChange={({ fileList: next }) => onChange(next.slice(-1))}
+      >
+        <p className="ant-upload-drag-icon">
+          <FileTextOutlined />
+        </p>
+        <p className="ant-upload-text">点击或拖拽上传</p>
+      </Upload.Dragger>
+    </Card>
   );
 }
 
@@ -106,13 +170,20 @@ export default function DocComparePage() {
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(true);
   const [excelKeyColumn, setExcelKeyColumn] = useState(false);
   const [enableLlm, setEnableLlm] = useState(true);
+  const [enableLlmStyle, setEnableLlmStyle] = useState(true);
+  const [enableLlmRefine, setEnableLlmRefine] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [job, setJob] = useState<CompareJob | null>(null);
+  const [highlightA, setHighlightA] = useState<string[]>([]);
+  const [highlightB, setHighlightB] = useState<string[]>([]);
+  const [showUploadAgain, setShowUploadAgain] = useState(false);
   const pollRef = useRef<number | null>(null);
+  const previewARef = useRef<HTMLDivElement | null>(null);
+  const previewBRef = useRef<HTMLDivElement | null>(null);
 
   const options: CompareOptions = useMemo(
-    () => ({ ignoreWhitespace, excelKeyColumn, enableLlm }),
-    [ignoreWhitespace, excelKeyColumn, enableLlm],
+    () => ({ ignoreWhitespace, excelKeyColumn, enableLlm, enableLlmStyle, enableLlmRefine }),
+    [ignoreWhitespace, excelKeyColumn, enableLlm, enableLlmStyle, enableLlmRefine],
   );
 
   useEffect(() => {
@@ -168,6 +239,9 @@ export default function DocComparePage() {
     }
     setSubmitting(true);
     setJob(null);
+    setHighlightA([]);
+    setHighlightB([]);
+    setShowUploadAgain(false);
     try {
       const created = await documentCompareApi.createJob(a, b, options);
       setJob(created);
@@ -181,59 +255,125 @@ export default function DocComparePage() {
     }
   };
 
+  const locate = (blockIdsA?: string[], blockIdsB?: string[]) => {
+    const a = blockIdsA || [];
+    const b = blockIdsB || [];
+    if (!a.length && !b.length) {
+      message.info('该差异暂无预览锚点');
+      return;
+    }
+    setHighlightA(a);
+    setHighlightB(b);
+    // 先滚到预览区，再闪块
+    previewARef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    window.setTimeout(() => {
+      scrollToPreviewBlocks(a, b, previewARef.current, previewBRef.current);
+    }, 80);
+  };
+
   const result = job?.result;
   const stats = result?.stats;
+  const hasPreview =
+    !!result &&
+    ((result.previewA?.blocks && result.previewA.blocks.length > 0) ||
+      (result.previewB?.blocks && result.previewB.blocks.length > 0));
+  const showUpload = !result || showUploadAgain || (!hasPreview && job?.status === 'SUCCEEDED');
 
   return (
     <div>
       <PageHeader
         title="文档对比"
-        description="上传两个文件，查看文字 / 段落 / 结构差异，并可选 AI 解读（非审计唯一依据）。"
+        description="对比完成后，上方上传区变为 A/B 结构预览（与文档预览相同）；点击下方文字/段落差异即可在预览中高亮定位。"
       />
 
       <Alert
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message={`支持 txt/md/json、Word/Excel/PPT、PDF、图片；单文件 ≤ ${formatFileSize(DOCUMENT_COMPARE_MAX_FILE_BYTES)}；大文件上传可能较慢；任务结果约 1 小时后过期。`}
+        message={`支持 txt/md/json、Word/Excel/PPT、PDF、图片；单文件 ≤ ${formatFileSize(DOCUMENT_COMPARE_MAX_FILE_BYTES)}；开启 LLM 样式/闭环时进度会出现 previewing-a/b；任务约 1 小时过期。`}
       />
 
-      <Row gutter={16}>
-        <Col xs={24} md={12}>
-          <Card size="small" title="文件 A（旧）" style={{ marginBottom: 16 }}>
-            <Upload.Dragger
-              accept={ACCEPT}
-              maxCount={1}
-              fileList={fileA}
-              beforeUpload={() => false}
-              onChange={({ fileList }) => setFileA(fileList.slice(-1))}
-            >
-              <p className="ant-upload-drag-icon">
-                <FileTextOutlined />
-              </p>
-              <p className="ant-upload-text">点击或拖拽上传</p>
-            </Upload.Dragger>
-          </Card>
-        </Col>
-        <Col xs={24} md={12}>
-          <Card size="small" title="文件 B（新）" style={{ marginBottom: 16 }}>
-            <Upload.Dragger
-              accept={ACCEPT}
-              maxCount={1}
-              fileList={fileB}
-              beforeUpload={() => false}
-              onChange={({ fileList }) => setFileB(fileList.slice(-1))}
-            >
-              <p className="ant-upload-drag-icon">
-                <FileTextOutlined />
-              </p>
-              <p className="ant-upload-text">点击或拖拽上传</p>
-            </Upload.Dragger>
-          </Card>
-        </Col>
-      </Row>
+      {showUpload && (
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <UploadPane title="文件 A（旧）" fileList={fileA} onChange={setFileA} />
+          </Col>
+          <Col xs={24} md={12}>
+            <UploadPane title="文件 B（新）" fileList={fileB} onChange={setFileB} />
+          </Col>
+        </Row>
+      )}
 
-      <Space wrap style={{ marginBottom: 16 }}>
+      {hasPreview && (
+        <>
+          <Space wrap style={{ marginBottom: 8 }}>
+            <Typography.Text type="secondary">
+              预览区已替换原上传位 · 与「文档预览」同一套结构阅读
+            </Typography.Text>
+            <Button size="small" type="link" onClick={() => setShowUploadAgain((v) => !v)}>
+              {showUploadAgain ? '收起上传' : '更换文件'}
+            </Button>
+          </Space>
+          <Row gutter={16} style={{ marginBottom: 8 }}>
+            <Col xs={24} lg={12}>
+              <Card
+                size="small"
+                title={
+                  <Space>
+                    <span>预览 A</span>
+                    <Typography.Text type="secondary" style={{ fontWeight: 400 }}>
+                      {result?.fileNameA || result?.previewA?.fileName || '旧'}
+                    </Typography.Text>
+                    {result?.previewA?.llmStyleUsed && <Tag>LLM 样式</Tag>}
+                  </Space>
+                }
+                styles={{ body: { maxHeight: 480, overflow: 'auto', paddingTop: 8 } }}
+              >
+                <div ref={previewARef}>
+                  <FlowStructureReader
+                    blocks={result?.previewA?.blocks}
+                    highlightBlockIds={highlightA}
+                  />
+                </div>
+              </Card>
+            </Col>
+            <Col xs={24} lg={12}>
+              <Card
+                size="small"
+                title={
+                  <Space>
+                    <span>预览 B</span>
+                    <Typography.Text type="secondary" style={{ fontWeight: 400 }}>
+                      {result?.fileNameB || result?.previewB?.fileName || '新'}
+                    </Typography.Text>
+                    {result?.previewB?.llmStyleUsed && <Tag>LLM 样式</Tag>}
+                  </Space>
+                }
+                styles={{ body: { maxHeight: 480, overflow: 'auto', paddingTop: 8 } }}
+              >
+                <div ref={previewBRef}>
+                  <FlowStructureReader
+                    blocks={result?.previewB?.blocks}
+                    highlightBlockIds={highlightB}
+                  />
+                </div>
+              </Card>
+            </Col>
+          </Row>
+        </>
+      )}
+
+      {result && !hasPreview && job?.status === 'SUCCEEDED' && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="本次结果没有预览内容"
+          description="多半是后端尚未加载「对比内嵌预览」代码，或对比完成于升级前。请重启后端后重新点「开始对比」。进度中应出现 previewing-a / previewing-b。"
+        />
+      )}
+
+      <Space wrap style={{ marginBottom: 16, marginTop: 8 }}>
         <Checkbox checked={ignoreWhitespace} onChange={(e) => setIgnoreWhitespace(e.target.checked)}>
           忽略空白差异
         </Checkbox>
@@ -243,6 +383,14 @@ export default function DocComparePage() {
         <Space>
           <Typography.Text>AI 解读</Typography.Text>
           <Switch checked={enableLlm} onChange={setEnableLlm} />
+        </Space>
+        <Space>
+          <Typography.Text>预览 LLM 样式</Typography.Text>
+          <Switch checked={enableLlmStyle} onChange={setEnableLlmStyle} />
+        </Space>
+        <Space>
+          <Typography.Text>预览保真闭环</Typography.Text>
+          <Switch checked={enableLlmRefine} onChange={setEnableLlmRefine} />
         </Space>
         <Button
           type="primary"
@@ -301,6 +449,114 @@ export default function DocComparePage() {
             size="small"
             title={
               <Space>
+                <DiffOutlined />
+                差异
+                <Typography.Text type="secondary" style={{ fontWeight: 400 }}>
+                  点击条目 → 上方预览高亮对应块
+                </Typography.Text>
+              </Space>
+            }
+            style={{ marginBottom: 16 }}
+          >
+            <Tabs
+              items={[
+                {
+                  key: 'text',
+                  label: (
+                    <span>
+                      <DiffOutlined /> 文字差异
+                    </span>
+                  ),
+                  children: (
+                    <TextHunkView
+                      hunks={result.textHunks || []}
+                      onLocate={(h) => locate(h.blockIdsA, h.blockIdsB)}
+                    />
+                  ),
+                },
+                {
+                  key: 'paragraph',
+                  label: `段落差异 (${result.paragraphOps?.length || 0})`,
+                  children: (
+                    <Table<ParagraphOp>
+                      size="small"
+                      rowKey={(_, i) => String(i)}
+                      pagination={{ pageSize: 20 }}
+                      dataSource={result.paragraphOps || []}
+                      onRow={(op) => ({
+                        onClick: () => locate(op.blockIdsA, op.blockIdsB),
+                        style: { cursor: 'pointer' },
+                      })}
+                      columns={[
+                        {
+                          title: '类型',
+                          dataIndex: 'type',
+                          width: 90,
+                          render: (t: DiffOpType) => <Tag color={OP_COLOR[t]}>{opLabel(t)}</Tag>,
+                        },
+                        { title: '块类型', dataIndex: 'blockType', width: 110 },
+                        {
+                          title: '旧文本',
+                          dataIndex: 'oldText',
+                          ellipsis: true,
+                          render: (v?: string) => v || '—',
+                        },
+                        {
+                          title: '新文本',
+                          dataIndex: 'newText',
+                          ellipsis: true,
+                          render: (v?: string) => v || '—',
+                        },
+                      ]}
+                    />
+                  ),
+                },
+                {
+                  key: 'structure',
+                  label: `结构差异 (${result.structureOps?.length || 0})`,
+                  children: (
+                    <Table<StructureOp>
+                      size="small"
+                      rowKey={(_, i) => String(i)}
+                      pagination={{ pageSize: 20 }}
+                      dataSource={result.structureOps || []}
+                      onRow={(op) => ({
+                        onClick: () => locate(op.blockIdsA, op.blockIdsB),
+                        style: { cursor: 'pointer' },
+                      })}
+                      columns={[
+                        {
+                          title: '类型',
+                          dataIndex: 'type',
+                          width: 90,
+                          render: (t: DiffOpType) => <Tag color={OP_COLOR[t]}>{opLabel(t)}</Tag>,
+                        },
+                        { title: '路径', dataIndex: 'path', width: 220, ellipsis: true },
+                        { title: '块类型', dataIndex: 'blockType', width: 120 },
+                        {
+                          title: '旧',
+                          dataIndex: 'oldText',
+                          ellipsis: true,
+                          render: (v?: string) => v || '—',
+                        },
+                        {
+                          title: '新',
+                          dataIndex: 'newText',
+                          ellipsis: true,
+                          render: (v?: string) => v || '—',
+                        },
+                      ]}
+                    />
+                  ),
+                },
+              ]}
+            />
+          </Card>
+
+          <Card
+            size="small"
+            title={
+              <Space>
                 <RobotOutlined />
                 AI 解读
                 <Tag>非逐字校对</Tag>
@@ -338,87 +594,6 @@ export default function DocComparePage() {
               </>
             )}
           </Card>
-
-          <Tabs
-            items={[
-              {
-                key: 'text',
-                label: (
-                  <span>
-                    <DiffOutlined /> 文字差异
-                  </span>
-                ),
-                children: <TextHunkView hunks={result.textHunks || []} />,
-              },
-              {
-                key: 'paragraph',
-                label: `段落差异 (${result.paragraphOps?.length || 0})`,
-                children: (
-                  <Table<ParagraphOp>
-                    size="small"
-                    rowKey={(_, i) => String(i)}
-                    pagination={{ pageSize: 20 }}
-                    dataSource={result.paragraphOps || []}
-                    columns={[
-                      {
-                        title: '类型',
-                        dataIndex: 'type',
-                        width: 90,
-                        render: (t: DiffOpType) => <Tag color={OP_COLOR[t]}>{opLabel(t)}</Tag>,
-                      },
-                      { title: '块类型', dataIndex: 'blockType', width: 110 },
-                      {
-                        title: '旧文本',
-                        dataIndex: 'oldText',
-                        ellipsis: true,
-                        render: (v?: string) => v || '—',
-                      },
-                      {
-                        title: '新文本',
-                        dataIndex: 'newText',
-                        ellipsis: true,
-                        render: (v?: string) => v || '—',
-                      },
-                    ]}
-                  />
-                ),
-              },
-              {
-                key: 'structure',
-                label: `结构差异 (${result.structureOps?.length || 0})`,
-                children: (
-                  <Table<StructureOp>
-                    size="small"
-                    rowKey={(_, i) => String(i)}
-                    pagination={{ pageSize: 20 }}
-                    dataSource={result.structureOps || []}
-                    columns={[
-                      {
-                        title: '类型',
-                        dataIndex: 'type',
-                        width: 90,
-                        render: (t: DiffOpType) => <Tag color={OP_COLOR[t]}>{opLabel(t)}</Tag>,
-                      },
-                      { title: '路径', dataIndex: 'path', width: 220, ellipsis: true },
-                      { title: '块类型', dataIndex: 'blockType', width: 120 },
-                      {
-                        title: '旧',
-                        dataIndex: 'oldText',
-                        ellipsis: true,
-                        render: (v?: string) => v || '—',
-                      },
-                      {
-                        title: '新',
-                        dataIndex: 'newText',
-                        ellipsis: true,
-                        render: (v?: string) => v || '—',
-                      },
-                    ]}
-                  />
-                ),
-              },
-            ]}
-          />
         </>
       )}
     </div>

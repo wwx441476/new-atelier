@@ -6,6 +6,7 @@ import com.example.atelier.domain.settings.SemanticLlmProfilesSettings;
 import com.example.atelier.infra.exception.AtelierException;
 import com.example.atelier.infra.persistence.entity.AppSettingEntity;
 import com.example.atelier.infra.persistence.jpa.AppSettingJpaRepository;
+import com.example.atelier.warning.evaluator.KimiEndpointSupport;
 import com.example.atelier.warning.evaluator.SemanticLlmProviders;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -47,6 +48,9 @@ public class SemanticLlmConfigLoader {
         }
         SemanticLlmConfig config = profile.toConfig();
         SemanticLlmProviders.applyProviderDefaults(config);
+        // 强制归一化协议并写回，避免空 protocol 被客户端当成 openai
+        config.setProtocol(KimiEndpointSupport.normalizeProtocol(
+                config.getProtocol(), config.getBaseUrl(), config.getProvider()));
         return config;
     }
 
@@ -153,10 +157,14 @@ public class SemanticLlmConfigLoader {
             if (profile.getTimeoutSeconds() == null || profile.getTimeoutSeconds() <= 0) {
                 profile.setTimeoutSeconds(30);
             }
-            SemanticLlmProviders.applyProviderDefaults(profile.toConfig());
-            profile.setProvider(profile.toConfig().getProvider());
-            profile.setModel(profile.toConfig().getModel());
-            profile.setBaseUrl(profile.toConfig().getBaseUrl());
+            SemanticLlmConfig normalized = profile.toConfig();
+            SemanticLlmProviders.applyProviderDefaults(normalized);
+            String protocol = KimiEndpointSupport.normalizeProtocol(
+                    profile.getProtocol(), normalized.getBaseUrl(), normalized.getProvider());
+            profile.setProvider(normalized.getProvider());
+            profile.setModel(normalized.getModel());
+            profile.setBaseUrl(normalized.getBaseUrl());
+            profile.setProtocol(protocol);
         }
         final String candidateActiveId = settings.getActiveProfileId();
         boolean activeValid = candidateActiveId != null

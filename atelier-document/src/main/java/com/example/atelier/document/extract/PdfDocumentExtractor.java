@@ -50,6 +50,10 @@ public class PdfDocumentExtractor implements DocumentExtractor {
             }
 
             PDFTextStripper stripper = new PDFTextStripper();
+            stripper.setSortByPosition(true);
+            stripper.setLineSeparator("\n");
+            stripper.setParagraphStart("");
+            stripper.setParagraphEnd("\n");
             StringBuilder allText = new StringBuilder();
             List<String> pageTexts = new ArrayList<>();
             for (int page = 1; page <= limit; page++) {
@@ -118,19 +122,7 @@ public class PdfDocumentExtractor implements DocumentExtractor {
 
     private static void splitParagraphs(List<DocumentBlock> blocks, BlockIds ids, String text,
                                         int page, Double confidence) {
-        String[] parts = text.split("\\R{2,}");
-        for (String part : parts) {
-            String trimmed = part.replace('\r', '\n').trim();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            blocks.add(DocumentBlock.builder()
-                    .id(ids.next())
-                    .type(BlockType.PARAGRAPH)
-                    .text(trimmed)
-                    .meta(BlockMeta.builder().page(page).ocrConfidence(confidence).build())
-                    .build());
-        }
+        PdfParagraphSplitter.splitInto(blocks, ids, text, page, confidence);
     }
 
     private static PDDocument openPdf(InputStream input, Path sourcePath) throws Exception {

@@ -1,0 +1,184 @@
+.flow-reader {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 8px 4px 48px;
+  line-height: 1.7;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.flow-section {
+  margin: 28px 0 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e8e8e8;
+}
+
+.flow-section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.flow-section-title {
+  margin: 0 !important;
+  font-size: 16px !important;
+  color: rgba(0, 0, 0, 0.65) !important;
+}
+
+.flow-heading {
+  margin: 20px 0 10px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.flow-heading-h1 {
+  font-size: 26px;
+}
+
+.flow-heading-h2 {
+  font-size: 20px;
+}
+
+.flow-heading-h3 {
+  font-size: 16px;
+}
+
+.flow-para {
+  margin: 0 0 12px !important;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.flow-caption {
+  margin: 0 0 12px !important;
+  font-style: italic;
+}
+
+/* 文内已有 1. / · 标记，去掉浏览器默认圆点，避免「• 1.」双重标记 */
+.flow-list {
+  margin: 0 0 12px;
+  padding-left: 0;
+  list-style: none;
+}
+
+.flow-list-item {
+  margin-bottom: 6px;
+  padding-left: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.flow-code {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Sarasa Mono SC",
+    "Noto Sans Mono CJK SC", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.flow-table-wrap {
+  margin: 0 0 16px;
+  overflow-x: auto;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.flow-table-wrap .ant-table {
+  font-size: 13px;
+}
+
+.flow-table-wrap .ant-table-container,
+.flow-table-wrap .ant-table-content > table {
+  border-color: #d0d0d0 !important;
+}
+
+.flow-table-wrap .ant-table.ant-table-bordered > .ant-table-container {
+  border: 1px solid #d0d0d0 !important;
+  border-radius: 0 !important;
+}
+
+.flow-table-wrap .ant-table-thead > tr > th,
+.flow-table-wrap .ant-table-tbody > tr > td {
+  border-color: #d0d0d0 !important;
+  border-width: 1px !important;
+  padding: 8px 10px !important;
+}
+
+.flow-table-wrap .ant-table-thead > tr > th {
+  background: #fafafa !important;
+  color: rgba(0, 0, 0, 0.88);
+  font-weight: 600;
+}
+
+.flow-table-wrap .ant-table-tbody > tr > td {
+  background: #fff;
+}
+
+.flow-table-wrap .ant-table-cell-ellipsis {
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
+}
+
+.flow-image-wrap {
+  margin: 0 0 16px;
+  text-align: center;
+}
+
+.flow-image {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #e8e8e8;
+  border-radius: 2px;
+  background: #fafafa;
+}
+
+.flow-image-caption {
+  margin: 6px 0 0 !important;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.flow-block {
+  scroll-margin-top: 72px;
+}
+
+.flow-block-flash {
+  animation: flow-block-flash 1.5s ease;
+}
+
+.flow-block-highlight {
+  outline: 2px solid #faad14;
+  outline-offset: 2px;
+  background: rgba(255, 229, 100, 0.28);
+}
+
+@keyframes flow-block-flash {
+  0% {
+    background: rgba(255, 229, 100, 0.55);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.flow-para strong,
+.flow-heading strong,
+.flow-list-item strong {
+  font-weight: 700;
+}
+
+.flow-para em,
+.flow-heading em,
+.flow-list-item em {
+  font-style: italic;
+}

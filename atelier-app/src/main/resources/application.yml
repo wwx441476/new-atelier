@@ -48,4 +48,8 @@ atelier:
     max-sheets: 50
     job-ttl-millis: 3600000
     max-concurrent-jobs: 2
+  document-preview:
+    max-file-bytes: 209715200
+    job-ttl-millis: 3600000
+    max-concurrent-jobs: 2
 

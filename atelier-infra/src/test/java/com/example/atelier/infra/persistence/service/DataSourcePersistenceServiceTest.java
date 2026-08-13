@@ -3,7 +3,6 @@ package com.example.atelier.infra.persistence.service;
 import com.example.atelier.infra.datasource.DataSourceConfig;
 import com.example.atelier.infra.datasource.DbType;
 import com.example.atelier.infra.exception.AtelierException;
-import com.example.atelier.infra.persistence.DataSourceJpaTestConfig;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -17,7 +16,7 @@ import java.util.Optional;
 
 @RunWith(SpringRunner.class)
 @DataJpaTest
-@Import({DataSourcePersistenceService.class, DataSourceJpaTestConfig.class})
+@Import(DataSourcePersistenceService.class)
 public class DataSourcePersistenceServiceTest {
 
     @Autowired

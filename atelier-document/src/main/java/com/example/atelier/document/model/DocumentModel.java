@@ -39,6 +39,12 @@ public class DocumentModel {
                 for (List<String> row : block.getTable().getRows()) {
                     sb.append(String.join("\t", row)).append('\n');
                 }
+            } else if (block.getType() == BlockType.IMAGE) {
+                sb.append("[IMAGE]");
+                if (block.getText() != null && !block.getText().isEmpty()) {
+                    sb.append(' ').append(block.getText());
+                }
+                sb.append('\n');
             } else if (block.getText() != null && !block.getText().isEmpty()) {
                 sb.append(block.getText()).append('\n');
             }

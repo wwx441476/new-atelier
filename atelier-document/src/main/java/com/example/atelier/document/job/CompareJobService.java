@@ -1,5 +1,6 @@
 package com.example.atelier.document.job;
 
+import com.example.atelier.document.diff.CompareLocateService;
 import com.example.atelier.document.diff.DiffEngine;
 import com.example.atelier.document.extract.DocumentExtractService;
 import com.example.atelier.document.llm.LlmInterpretService;
@@ -9,6 +10,7 @@ import com.example.atelier.document.model.CompareOptions;
 import com.example.atelier.document.model.CompareResult;
 import com.example.atelier.document.model.DocumentModel;
 import com.example.atelier.document.model.LlmInterpretation;
+import com.example.atelier.document.preview.PreviewDocument;
 import com.example.atelier.document.store.TempBlobStore;
 import com.example.atelier.infra.exception.AtelierException;
 import org.slf4j.Logger;
@@ -43,6 +45,8 @@ public class CompareJobService implements DisposableBean {
     private final TempBlobStore blobStore;
     private final DocumentExtractService extractService;
     private final DiffEngine diffEngine;
+    private final ComparePreviewBuilder previewBuilder;
+    private final CompareLocateService locateService;
     private final LlmInterpretService interpretService;
     private final DocumentCompareProperties properties;
     private final ExecutorService executor;
@@ -51,11 +55,15 @@ public class CompareJobService implements DisposableBean {
     public CompareJobService(TempBlobStore blobStore,
                              DocumentExtractService extractService,
                              DiffEngine diffEngine,
+                             ComparePreviewBuilder previewBuilder,
+                             CompareLocateService locateService,
                              LlmInterpretService interpretService,
                              DocumentCompareProperties properties) {
         this.blobStore = blobStore;
         this.extractService = extractService;
         this.diffEngine = diffEngine;
+        this.previewBuilder = previewBuilder;
+        this.locateService = locateService;
         this.interpretService = interpretService;
         this.properties = properties;
         this.executor = Executors.newFixedThreadPool(Math.max(1, properties.getMaxConcurrentJobs()));
@@ -121,15 +129,25 @@ public class CompareJobService implements DisposableBean {
                 fail(job, "等待执行超时（并发任务过多）");
                 return;
             }
-            update(job, CompareJobStatus.RUNNING, "extracting", 10);
+            update(job, CompareJobStatus.RUNNING, "extracting", 8);
             DocumentModel modelA = extractService.extract(
                     fileAPaths.get(id), job.getFileNameA(), contentTypeA.get(id), job.getOptions());
-            update(job, CompareJobStatus.RUNNING, "extracting-b", 35);
+            update(job, CompareJobStatus.RUNNING, "extracting-b", 18);
             DocumentModel modelB = extractService.extract(
                     fileBPaths.get(id), job.getFileNameB(), contentTypeB.get(id), job.getOptions());
-            update(job, CompareJobStatus.RUNNING, "diffing", 60);
+
+            update(job, CompareJobStatus.RUNNING, "previewing-a", 28);
+            PreviewDocument previewA = previewBuilder.build(
+                    modelA, fileAPaths.get(id), job.getOptions(), () -> false);
+            update(job, CompareJobStatus.RUNNING, "previewing-b", 48);
+            PreviewDocument previewB = previewBuilder.build(
+                    modelB, fileBPaths.get(id), job.getOptions(), () -> false);
+
+            update(job, CompareJobStatus.RUNNING, "diffing", 68);
             CompareResult result = diffEngine.compare(modelA, modelB, job.getOptions());
-            update(job, CompareJobStatus.RUNNING, "interpreting", 80);
+            locateService.attach(result, previewA, previewB, job.getOptions());
+
+            update(job, CompareJobStatus.RUNNING, "interpreting", 88);
             LlmInterpretation interpretation = interpretService.interpret(result, job.getOptions());
             result.setInterpretation(interpretation);
             job.setResult(result);

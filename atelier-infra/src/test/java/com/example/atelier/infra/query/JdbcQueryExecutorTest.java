@@ -35,7 +35,8 @@ public class JdbcQueryExecutorTest {
 
         try (Connection conn = registry.getConnection("ds-test");
              Statement stmt = conn.createStatement()) {
-            stmt.execute("CREATE TABLE orders (dept_code VARCHAR(20), amount DECIMAL(18,2))");
+            stmt.execute("CREATE TABLE IF NOT EXISTS orders (dept_code VARCHAR(20), amount DECIMAL(18,2))");
+            stmt.execute("DELETE FROM orders");
             stmt.execute("INSERT INTO orders VALUES ('001', 100.00)");
             stmt.execute("INSERT INTO orders VALUES ('001', 200.00)");
             stmt.execute("INSERT INTO orders VALUES ('002', 50.00)");

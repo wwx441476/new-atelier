@@ -22,7 +22,7 @@ import java.util.List;
 
 /**
  * LLM HTTP 客户端（Java 8 兼容）。
- * 支持 OpenAI Chat Completions 与 Anthropic Messages（Kimi Coding / cc switch 同款）。
+ * 支持 OpenAI Chat Completions 与 Anthropic Messages；支持 SSE 流式（降低整包等待超时风险）。
  */
 public class LlmChatClient {
 
@@ -38,54 +38,53 @@ public class LlmChatClient {
     }
 
     public String chat(SemanticLlmConfig config, String systemPrompt, String userPrompt, int maxTokens) {
-        return chat(config, systemPrompt, userPrompt, null, maxTokens);
+        return chat(config, systemPrompt, userPrompt, null, maxTokens, false);
     }
 
     public String chat(SemanticLlmConfig config, String systemPrompt, String userPrompt,
             List<String> imageDataUrls, int maxTokens) {
+        return chat(config, systemPrompt, userPrompt, imageDataUrls, maxTokens, false);
+    }
+
+    /**
+     * @param stream true 时使用 SSE 流式读取；首包后按块续读，避免现场环境整包 Read timed out
+     */
+    public String chat(SemanticLlmConfig config, String systemPrompt, String userPrompt,
+            List<String> imageDataUrls, int maxTokens, boolean stream) {
         if (config == null || config.getApiKey() == null || config.getApiKey().trim().isEmpty()) {
             throw new AtelierException("LLM API Key 未配置");
         }
         int resolvedMaxTokens = maxTokens > 0 ? maxTokens : SEMANTIC_MAX_TOKENS;
         List<String> images = imageDataUrls != null ? imageDataUrls : Collections.emptyList();
         return LlmConcurrencyLimiter.withPermit(() -> {
-            SemanticLlmConfig resolved = config;
+            SemanticLlmConfig resolved = copyConfig(config);
+            resolved.setProtocol(KimiEndpointSupport.normalizeProtocol(
+                    resolved.getProtocol(), resolved.getBaseUrl(), resolved.getProvider()));
             boolean hasImages = !images.isEmpty();
-            boolean anthropic = KimiEndpointSupport.shouldUseAnthropic(config);
+            boolean anthropic = KimiEndpointSupport.shouldUseAnthropic(resolved);
             if (hasImages) {
-                resolved = buildVisionConfig(config, anthropic);
-                // 视觉改写后可能切到 OpenAI 官方 Coding 地址，需重新判定协议
+                resolved = buildVisionConfig(resolved, anthropic);
                 anthropic = KimiEndpointSupport.shouldUseAnthropic(resolved);
-                log.info("LLM multimodal 请求: images={}, model={}, baseUrl={}, protocol={}",
+                log.info("LLM multimodal 请求: images={}, model={}, baseUrl={}, protocol={}, stream={}",
                         images.size(), resolved.getModel(), resolved.getBaseUrl(),
-                        anthropic ? "anthropic" : "openai");
+                        anthropic ? "anthropic" : "openai", stream);
             }
             if (anthropic) {
-                return chatAnthropic(resolved, systemPrompt, userPrompt, images, resolvedMaxTokens);
+                return chatAnthropic(resolved, systemPrompt, userPrompt, images, resolvedMaxTokens, stream);
             }
-            return chatOpenAi(resolved, systemPrompt, userPrompt, images, resolvedMaxTokens);
+            return chatOpenAi(resolved, systemPrompt, userPrompt, images, resolvedMaxTokens, stream);
         });
     }
 
     private SemanticLlmConfig buildVisionConfig(SemanticLlmConfig config, boolean anthropicPreferred) {
-        SemanticLlmConfig copy = SemanticLlmConfig.builder()
-                .enabled(config.isEnabled())
-                .provider(config.getProvider())
-                .protocol(config.getProtocol())
-                .apiKey(config.getApiKey())
-                .baseUrl(config.getBaseUrl())
-                .model(config.getModel())
-                .timeoutSeconds(config.getTimeoutSeconds())
-                .build();
+        SemanticLlmConfig copy = copyConfig(config);
         SemanticLlmProviders.applyProviderDefaults(copy);
         if (anthropicPreferred && !KimiEndpointSupport.shouldRewriteVisionToOfficialCoding(copy.getBaseUrl())) {
-            // 自定义 Anthropic 网关（如 aitoken + CC Switch）：多模态仍走 Messages，不改写 URL
             copy.setProtocol(KimiEndpointSupport.PROTOCOL_ANTHROPIC);
             copy.setModel(KimiEndpointSupport.resolveVisionModel(
                     copy.getBaseUrl(), copy.getProvider(), copy.getModel()));
             return copy;
         }
-        // 官方 Kimi Coding：多模态改走其 OpenAI 兼容地址；其它 OpenAI 兼容网关仅规范化 /v1
         if (KimiEndpointSupport.shouldRewriteVisionToOfficialCoding(copy.getBaseUrl())) {
             copy.setBaseUrl(KimiEndpointSupport.CODING_OPENAI_BASE_URL);
             copy.setProtocol(KimiEndpointSupport.PROTOCOL_OPENAI);
@@ -100,18 +99,19 @@ public class LlmChatClient {
     }
 
     private String chatAnthropic(SemanticLlmConfig config, String systemPrompt, String userPrompt,
-            List<String> imageDataUrls, int maxTokens) {
+            List<String> imageDataUrls, int maxTokens, boolean stream) {
         String model = KimiEndpointSupport.resolveModel(config.getBaseUrl(), config.getProvider(), config.getModel());
         int timeout = timeoutSeconds(config);
         String endpoint = KimiEndpointSupport.buildAnthropicMessagesUrl(config.getBaseUrl());
-        log.info("LLM HTTP 请求: protocol=anthropic, endpoint={}, model={}, provider={}, timeoutSec={}",
-                endpoint, model, config.getProvider(), timeout);
+        log.info("LLM HTTP 请求: protocol=anthropic, stream={}, endpoint={}, model={}, provider={}, timeoutSec={}",
+                stream, endpoint, model, config.getProvider(), timeout);
         long startedAt = System.currentTimeMillis();
         HttpURLConnection connection = null;
         try {
             ObjectNode body = MAPPER.createObjectNode();
             body.put("model", model);
             body.put("max_tokens", maxTokens);
+            body.put("stream", stream);
             if (systemPrompt != null && !systemPrompt.isEmpty()) {
                 body.put("system", systemPrompt);
             }
@@ -135,7 +135,7 @@ public class LlmChatClient {
             }
 
             byte[] payload = MAPPER.writeValueAsString(body).getBytes(StandardCharsets.UTF_8);
-            connection = openConnection(endpoint, timeout);
+            connection = openConnection(endpoint, timeout, stream);
             String apiKey = config.getApiKey().trim();
             connection.setRequestProperty("x-api-key", apiKey);
             connection.setRequestProperty("Authorization", "Bearer " + apiKey);
@@ -149,14 +149,17 @@ public class LlmChatClient {
                 out.write(payload);
             }
 
+            if (stream) {
+                return readAnthropicStream(connection, endpoint, model, startedAt);
+            }
             return parseResponse(connection, endpoint, model, true, startedAt);
         } catch (AtelierException e) {
-            log.warn("LLM HTTP 失败: protocol=anthropic, endpoint={}, model={}, error={}",
-                    endpoint, model, e.getMessage());
+            log.warn("LLM HTTP 失败: protocol=anthropic, stream={}, endpoint={}, model={}, error={}",
+                    stream, endpoint, model, e.getMessage());
             throw e;
         } catch (Exception e) {
-            log.warn("LLM HTTP 失败: protocol=anthropic, endpoint={}, model={}, error={}",
-                    endpoint, model, e.getMessage());
+            log.warn("LLM HTTP 失败: protocol=anthropic, stream={}, endpoint={}, model={}, error={}",
+                    stream, endpoint, model, e.getMessage());
             throw new AtelierException("LLM 调用失败: " + e.getMessage(), e);
         } finally {
             if (connection != null) {
@@ -166,19 +169,20 @@ public class LlmChatClient {
     }
 
     private String chatOpenAi(SemanticLlmConfig config, String systemPrompt, String userPrompt,
-            List<String> imageDataUrls, int maxTokens) {
+            List<String> imageDataUrls, int maxTokens, boolean stream) {
         String baseUrl = KimiEndpointSupport.normalizeOpenAiBaseUrl(config.getBaseUrl(), config.getProvider());
         String model = KimiEndpointSupport.resolveModel(baseUrl, config.getProvider(), config.getModel());
         int timeout = timeoutSeconds(config);
         String endpoint = KimiEndpointSupport.buildChatCompletionsUrl(baseUrl);
-        log.info("LLM HTTP 请求: protocol=openai, endpoint={}, model={}, provider={}, timeoutSec={}",
-                endpoint, model, config.getProvider(), timeout);
+        log.info("LLM HTTP 请求: protocol=openai, stream={}, endpoint={}, model={}, provider={}, timeoutSec={}",
+                stream, endpoint, model, config.getProvider(), timeout);
         long startedAt = System.currentTimeMillis();
         HttpURLConnection connection = null;
         try {
             ObjectNode body = MAPPER.createObjectNode();
             body.put("model", model);
             body.put("max_tokens", maxTokens);
+            body.put("stream", stream);
             ArrayNode messages = body.putArray("messages");
             if (systemPrompt != null && !systemPrompt.isEmpty()) {
                 ObjectNode system = messages.addObject();
@@ -194,7 +198,6 @@ public class LlmChatClient {
                     image.put("type", "image_url");
                     ObjectNode imageUrl = image.putObject("image_url");
                     imageUrl.put("url", dataUrl);
-                    // low 降低网关/模型空响应概率与耗时，OCR 场景足够
                     imageUrl.put("detail", "low");
                 }
                 content.addObject().put("type", "text").put("text", userPrompt);
@@ -203,7 +206,7 @@ public class LlmChatClient {
             }
 
             byte[] payload = MAPPER.writeValueAsString(body).getBytes(StandardCharsets.UTF_8);
-            connection = openConnection(endpoint, timeout);
+            connection = openConnection(endpoint, timeout, stream);
             connection.setRequestProperty("Authorization", "Bearer " + config.getApiKey().trim());
             connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
             connection.setRequestProperty("Content-Length", String.valueOf(payload.length));
@@ -216,19 +219,155 @@ public class LlmChatClient {
                 out.write(payload);
             }
 
+            if (stream) {
+                return readOpenAiStream(connection, endpoint, model, startedAt);
+            }
             return parseResponse(connection, endpoint, model, false, startedAt);
         } catch (AtelierException e) {
-            log.warn("LLM HTTP 失败: protocol=openai, endpoint={}, model={}, error={}",
-                    endpoint, model, e.getMessage());
+            log.warn("LLM HTTP 失败: protocol=openai, stream={}, endpoint={}, model={}, error={}",
+                    stream, endpoint, model, e.getMessage());
             throw e;
         } catch (Exception e) {
-            log.warn("LLM HTTP 失败: protocol=openai, endpoint={}, model={}, error={}",
-                    endpoint, model, e.getMessage());
+            log.warn("LLM HTTP 失败: protocol=openai, stream={}, endpoint={}, model={}, error={}",
+                    stream, endpoint, model, e.getMessage());
             throw new AtelierException("LLM 调用失败: " + e.getMessage(), e);
         } finally {
             if (connection != null) {
                 connection.disconnect();
             }
+        }
+    }
+
+    private String readOpenAiStream(HttpURLConnection connection, String endpoint, String model, long startedAt)
+            throws Exception {
+        int status = connection.getResponseCode();
+        InputStream stream = status >= 200 && status < 300
+                ? connection.getInputStream()
+                : connection.getErrorStream();
+        if (status < 200 || status >= 300) {
+            String err = readBody(stream);
+            long elapsedMs = System.currentTimeMillis() - startedAt;
+            log.warn("LLM HTTP 流式失败: status={}, elapsedMs={}, protocol=openai, endpoint={}, model={}, body={}",
+                    status, elapsedMs, endpoint, model, truncate(err, 200));
+            throw new AtelierException("LLM 请求失败: HTTP " + status + " — " + truncate(err, 200)
+                    + "（请求: " + endpoint + ", model=" + model + ", protocol=openai, stream=true）");
+        }
+        String text = accumulateOpenAiSse(stream);
+        long elapsedMs = System.currentTimeMillis() - startedAt;
+        log.info("LLM HTTP 响应: status={}, elapsedMs={}, protocol=openai, stream=true, endpoint={}, model={}, contentLen={}",
+                status, elapsedMs, endpoint, model, text.length());
+        if (text.trim().isEmpty()) {
+            throw new AtelierException("LLM 流式响应为空");
+        }
+        return text.trim();
+    }
+
+    private String readAnthropicStream(HttpURLConnection connection, String endpoint, String model, long startedAt)
+            throws Exception {
+        int status = connection.getResponseCode();
+        InputStream stream = status >= 200 && status < 300
+                ? connection.getInputStream()
+                : connection.getErrorStream();
+        if (status < 200 || status >= 300) {
+            String err = readBody(stream);
+            long elapsedMs = System.currentTimeMillis() - startedAt;
+            log.warn("LLM HTTP 流式失败: status={}, elapsedMs={}, protocol=anthropic, endpoint={}, model={}, body={}",
+                    status, elapsedMs, endpoint, model, truncate(err, 200));
+            throw new AtelierException("LLM 请求失败: HTTP " + status + " — " + truncate(err, 200)
+                    + "（请求: " + endpoint + ", model=" + model + ", protocol=anthropic, stream=true）");
+        }
+        String text = accumulateAnthropicSse(stream);
+        long elapsedMs = System.currentTimeMillis() - startedAt;
+        log.info("LLM HTTP 响应: status={}, elapsedMs={}, protocol=anthropic, stream=true, endpoint={}, model={}, contentLen={}",
+                status, elapsedMs, endpoint, model, text.length());
+        if (text.trim().isEmpty()) {
+            throw new AtelierException("LLM 流式响应为空");
+        }
+        return text.trim();
+    }
+
+    /** 供单测：解析 OpenAI SSE data 行并拼接文本 */
+    static String accumulateOpenAiSse(InputStream stream) throws Exception {
+        StringBuilder content = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (!line.startsWith("data:")) {
+                    continue;
+                }
+                String data = line.substring(5).trim();
+                if (data.isEmpty() || "[DONE]".equals(data)) {
+                    if ("[DONE]".equals(data)) {
+                        break;
+                    }
+                    continue;
+                }
+                appendOpenAiDelta(content, data);
+            }
+        }
+        return content.toString();
+    }
+
+    /** 供单测：解析 Anthropic SSE 并拼接 text_delta */
+    static String accumulateAnthropicSse(InputStream stream) throws Exception {
+        StringBuilder content = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.isEmpty() || line.startsWith("event:")) {
+                    continue;
+                }
+                if (!line.startsWith("data:")) {
+                    continue;
+                }
+                String data = line.substring(5).trim();
+                if (data.isEmpty()) {
+                    continue;
+                }
+                appendAnthropicDelta(content, data);
+            }
+        }
+        return content.toString();
+    }
+
+    static void appendOpenAiDelta(StringBuilder content, String dataJson) throws Exception {
+        JsonNode root = MAPPER.readTree(dataJson);
+        JsonNode delta = root.path("choices").path(0).path("delta");
+        String piece = extractOpenAiContentText(delta.path("content"));
+        if (piece == null || piece.isEmpty()) {
+            piece = delta.path("text").asText("");
+        }
+        if (piece != null && !piece.isEmpty()) {
+            content.append(piece);
+        }
+    }
+
+    static void appendAnthropicDelta(StringBuilder content, String dataJson) throws Exception {
+        JsonNode root = MAPPER.readTree(dataJson);
+        String type = root.path("type").asText("");
+        if ("content_block_delta".equals(type)) {
+            JsonNode delta = root.path("delta");
+            if ("text_delta".equals(delta.path("type").asText()) || delta.has("text")) {
+                content.append(delta.path("text").asText(""));
+            }
+            return;
+        }
+        if ("content_block_start".equals(type)) {
+            JsonNode block = root.path("content_block");
+            if ("text".equals(block.path("type").asText()) && block.has("text")) {
+                content.append(block.path("text").asText(""));
+            }
+            return;
+        }
+        if ("error".equals(type)) {
+            throw new AtelierException("LLM 流式错误: " + truncate(root.path("error").toString(), 200));
+        }
+        // 部分网关在 /v1/messages 上仍推 OpenAI 风格 choices.delta
+        if (root.path("choices").isArray() && root.path("choices").size() > 0) {
+            appendOpenAiDelta(content, dataJson);
         }
     }
 
@@ -249,7 +388,7 @@ public class LlmChatClient {
                     + "（请求: " + endpoint + ", model=" + model
                     + ", protocol=" + (anthropic ? "anthropic" : "openai") + "）");
         }
-        log.info("LLM HTTP 响应: status={}, elapsedMs={}, protocol={}, endpoint={}, model={}, contentLen={}",
+        log.info("LLM HTTP 响应: status={}, elapsedMs={}, protocol={}, stream=false, endpoint={}, model={}, contentLen={}",
                 status, elapsedMs, anthropic ? "anthropic" : "openai", endpoint, model, responseBody.length());
         JsonNode root = MAPPER.readTree(responseBody);
         if (anthropic) {
@@ -270,7 +409,6 @@ public class LlmChatClient {
         JsonNode content = choice0.path("message").path("content");
         String text = extractOpenAiContentText(content);
         if (text == null || text.trim().isEmpty()) {
-            // 部分网关把文本放在 text / reasoning_content，或 content 为多段数组
             text = choice0.path("message").path("text").asText("");
             if (text.trim().isEmpty()) {
                 text = choice0.path("text").asText("");
@@ -313,17 +451,33 @@ public class LlmChatClient {
         return content.asText("");
     }
 
+    private static SemanticLlmConfig copyConfig(SemanticLlmConfig config) {
+        return SemanticLlmConfig.builder()
+                .enabled(config.isEnabled())
+                .provider(config.getProvider())
+                .protocol(config.getProtocol())
+                .apiKey(config.getApiKey())
+                .baseUrl(config.getBaseUrl())
+                .model(config.getModel())
+                .timeoutSeconds(config.getTimeoutSeconds())
+                .build();
+    }
+
     private static int timeoutSeconds(SemanticLlmConfig config) {
         return config.getTimeoutSeconds() != null && config.getTimeoutSeconds() > 0
                 ? config.getTimeoutSeconds()
                 : 30;
     }
 
-    private static HttpURLConnection openConnection(String url, int timeoutSeconds) throws Exception {
+    private static HttpURLConnection openConnection(String url, int timeoutSeconds, boolean stream) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setRequestMethod("POST");
-        connection.setConnectTimeout(timeoutSeconds * 1000);
+        connection.setConnectTimeout(Math.min(30, timeoutSeconds) * 1000);
+        // 流式：超时表示「两次读之间」的空闲上限；非流式：整包读超时
         connection.setReadTimeout(timeoutSeconds * 1000);
+        if (stream) {
+            connection.setRequestProperty("Accept", "text/event-stream");
+        }
         return connection;
     }
 

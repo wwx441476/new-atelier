@@ -1,5 +1,6 @@
 import client from './client';
 import type { ApiResponse } from './types';
+import type { PreviewDocument } from './documentPreview';
 
 export type DiffOpType = 'ADDED' | 'REMOVED' | 'MODIFIED' | 'MOVED' | 'EQUAL';
 export type CompareJobStatus = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
@@ -8,6 +9,8 @@ export interface CompareOptions {
   ignoreWhitespace?: boolean;
   excelKeyColumn?: boolean;
   enableLlm?: boolean;
+  enableLlmStyle?: boolean;
+  enableLlmRefine?: boolean;
   llmProfileId?: string;
 }
 
@@ -17,6 +20,8 @@ export interface TextHunk {
   newStart: number;
   oldLines: string[];
   newLines: string[];
+  blockIdsA?: string[];
+  blockIdsB?: string[];
 }
 
 export interface ParagraphOp {
@@ -27,6 +32,8 @@ export interface ParagraphOp {
   oldText?: string;
   newText?: string;
   blockType?: string;
+  blockIdsA?: string[];
+  blockIdsB?: string[];
 }
 
 export interface StructureOp {
@@ -36,6 +43,8 @@ export interface StructureOp {
   oldText?: string;
   newText?: string;
   detail?: string;
+  blockIdsA?: string[];
+  blockIdsB?: string[];
 }
 
 export interface CompareStats {
@@ -69,6 +78,8 @@ export interface CompareResult {
   interpretation?: LlmInterpretation;
   plainTextA?: string;
   plainTextB?: string;
+  previewA?: PreviewDocument;
+  previewB?: PreviewDocument;
 }
 
 export interface CompareJob {

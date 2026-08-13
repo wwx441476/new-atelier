@@ -59,7 +59,14 @@ public final class KimiEndpointSupport {
                 return p;
             }
         }
-        return useAnthropicProtocol(baseUrl, provider) ? PROTOCOL_ANTHROPIC : PROTOCOL_OPENAI;
+        if (useAnthropicProtocol(baseUrl, provider)) {
+            return PROTOCOL_ANTHROPIC;
+        }
+        // 与前端 custom 默认一致：空 protocol 不再静默落到 openai（否则 aitoken 等网关会打错 /chat/completions）
+        if (provider != null && SemanticLlmProviders.CUSTOM.equalsIgnoreCase(provider.trim())) {
+            return PROTOCOL_ANTHROPIC;
+        }
+        return PROTOCOL_OPENAI;
     }
 
     /**

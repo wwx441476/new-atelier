@@ -20,4 +20,10 @@ public class TextHunk {
     private List<String> oldLines = new ArrayList<>();
     @Builder.Default
     private List<String> newLines = new ArrayList<>();
+    /** 预览侧 A 对应块 id（可多个，跨块行） */
+    @Builder.Default
+    private List<String> blockIdsA = new ArrayList<>();
+    /** 预览侧 B 对应块 id */
+    @Builder.Default
+    private List<String> blockIdsB = new ArrayList<>();
 }

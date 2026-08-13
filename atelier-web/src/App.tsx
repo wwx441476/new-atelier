@@ -10,6 +10,7 @@ import DashboardListPage from './pages/DashboardListPage';
 import DashboardDesignerPage from './pages/DashboardDesignerPage';
 import DashboardPresentPage from './pages/DashboardPresentPage';
 import DocComparePage from './pages/DocComparePage';
+import DocPreviewPage from './pages/DocPreviewPage';
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="warning-rules" element={<WarningRulePage />} />
           <Route path="dashboards" element={<DashboardListPage />} />
           <Route path="dashboards/:id/edit" element={<DashboardDesignerPage />} />
+          <Route path="document-preview" element={<DocPreviewPage />} />
           <Route path="document-compare" element={<DocComparePage />} />
           </Route>
         </Routes>

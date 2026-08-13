@@ -48,7 +48,7 @@ public class LlmOcrService {
         }
         try {
             String text = chatClient.chat(config, SYSTEM, "请提取图片中的全部文字。",
-                    Collections.singletonList(dataUrl), 2048);
+                    Collections.singletonList(dataUrl), 2048, true);
             return text == null ? "" : text;
         } catch (Exception e) {
             log.warn("OCR failed: {}", e.getMessage());

@@ -18,6 +18,8 @@ public class DocumentBlock {
     private int level;
     private String text;
     private TableData table;
+    /** data URL，如 data:image/png;base64,... */
+    private String imageDataUrl;
     private BlockMeta meta;
     @Builder.Default
     private List<DocumentBlock> children = new ArrayList<>();

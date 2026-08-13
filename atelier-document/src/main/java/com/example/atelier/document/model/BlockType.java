@@ -5,6 +5,7 @@ public enum BlockType {
     PARAGRAPH,
     LIST_ITEM,
     TABLE,
+    IMAGE,
     IMAGE_CAPTION,
     CODE,
     SLIDE,

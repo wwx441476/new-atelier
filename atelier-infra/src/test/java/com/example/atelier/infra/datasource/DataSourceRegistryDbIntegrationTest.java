@@ -2,7 +2,6 @@ package com.example.atelier.infra.datasource;
 
 import com.example.atelier.domain.query.CompiledQuery;
 import com.example.atelier.domain.query.QueryResult;
-import com.example.atelier.infra.persistence.DataSourceJpaTestConfig;
 import com.example.atelier.infra.persistence.service.DataSourcePersistenceService;
 import com.example.atelier.infra.query.JdbcQueryExecutor;
 import org.junit.After;
@@ -24,7 +23,7 @@ import java.util.Collections;
  */
 @RunWith(SpringRunner.class)
 @DataJpaTest
-@Import({DataSourcePersistenceService.class, JdbcQueryExecutor.class, DataSourceJpaTestConfig.class})
+@Import(DataSourcePersistenceService.class)
 public class DataSourceRegistryDbIntegrationTest {
 
     private static final String DS_ID = "ds-it";

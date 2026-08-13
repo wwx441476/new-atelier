@@ -20,6 +20,7 @@ import {
   AlertOutlined,
   DashboardOutlined,
   DiffOutlined,
+  FileSearchOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
@@ -32,6 +33,7 @@ const menuIcons: Record<string, ReactNode> = {
   '/metrics': <LineChartOutlined />,
   '/warning-rules': <AlertOutlined />,
   '/dashboards': <DashboardOutlined />,
+  '/document-preview': <FileSearchOutlined />,
   '/document-compare': <DiffOutlined />,
 };
 
@@ -53,6 +55,11 @@ function AdminLayoutInner() {
         ? `guide-menu-pending guide-menu-${step.id}`
         : `guide-menu-${step.id}`,
     })),
+    {
+      key: '/document-preview',
+      icon: menuIcons['/document-preview'],
+      label: '文档预览',
+    },
     {
       key: '/document-compare',
       icon: menuIcons['/document-compare'],
