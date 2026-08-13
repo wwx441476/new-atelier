@@ -19,6 +19,7 @@ import {
   LineChartOutlined,
   AlertOutlined,
   DashboardOutlined,
+  DiffOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
@@ -31,6 +32,7 @@ const menuIcons: Record<string, ReactNode> = {
   '/metrics': <LineChartOutlined />,
   '/warning-rules': <AlertOutlined />,
   '/dashboards': <DashboardOutlined />,
+  '/document-compare': <DiffOutlined />,
 };
 
 function AdminLayoutInner() {
@@ -42,14 +44,21 @@ function AdminLayoutInner() {
   const { storage } = useOnboarding();
   const { open: copilotOpen } = useCopilot();
 
-  const menuItems = ONBOARDING_STEPS.map((step) => ({
-    key: step.path,
-    icon: menuIcons[step.path],
-    label: step.menuLabel,
-    className: storage.guideActive && !storage.completedSteps.includes(step.id)
-      ? `guide-menu-pending guide-menu-${step.id}`
-      : `guide-menu-${step.id}`,
-  }));
+  const menuItems = [
+    ...ONBOARDING_STEPS.map((step) => ({
+      key: step.path,
+      icon: menuIcons[step.path],
+      label: step.menuLabel,
+      className: storage.guideActive && !storage.completedSteps.includes(step.id)
+        ? `guide-menu-pending guide-menu-${step.id}`
+        : `guide-menu-${step.id}`,
+    })),
+    {
+      key: '/document-compare',
+      icon: menuIcons['/document-compare'],
+      label: '文档对比',
+    },
+  ];
 
   return (
     <Layout style={{ minHeight: '100vh' }}>

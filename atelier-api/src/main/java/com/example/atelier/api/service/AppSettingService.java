@@ -114,6 +114,7 @@ public class AppSettingService {
                 .name(existing.getName())
                 .enabled(request.getEnabled() != null ? request.getEnabled() : existing.isEnabled())
                 .provider(firstNonBlank(request.getProvider(), existing.getProvider()))
+                .protocol(firstNonBlank(request.getProtocol(), existing.getProtocol()))
                 .apiKey(apiKey)
                 .model(firstNonBlank(request.getModel(), existing.getModel()))
                 .baseUrl(firstNonBlank(request.getBaseUrl(), existing.getBaseUrl()))
@@ -139,12 +140,14 @@ public class AppSettingService {
                         ? request.getEnabled()
                         : existing != null && existing.isEnabled())
                 .provider(firstNonBlank(request.getProvider(), existing != null ? existing.getProvider() : null))
+                .protocol(firstNonBlank(request.getProtocol(),
+                        existing != null ? existing.getProtocol() : null))
                 .apiKey(apiKey)
                 .model(firstNonBlank(request.getModel(), existing != null ? existing.getModel() : null))
                 .baseUrl(firstNonBlank(request.getBaseUrl(), existing != null ? existing.getBaseUrl() : null))
                 .timeoutSeconds(request.getTimeoutSeconds() != null
                         ? request.getTimeoutSeconds()
-                        : existing != null ? existing.getTimeoutSeconds() : 30)
+                        : existing != null ? existing.getTimeoutSeconds() : 120)
                 .build();
     }
 
@@ -158,12 +161,13 @@ public class AppSettingService {
         SemanticLlmConfig config = SemanticLlmConfig.builder()
                 .enabled(true)
                 .provider(firstNonBlank(request.getProvider(), existing.getProvider()))
+                .protocol(firstNonBlank(request.getProtocol(), existing.getProtocol()))
                 .apiKey(apiKey)
                 .model(firstNonBlank(request.getModel(), existing.getModel()))
                 .baseUrl(firstNonBlank(request.getBaseUrl(), existing.getBaseUrl()))
                 .timeoutSeconds(request.getTimeoutSeconds() != null
                         ? request.getTimeoutSeconds()
-                        : Optional.ofNullable(existing.getTimeoutSeconds()).orElse(30))
+                        : Optional.ofNullable(existing.getTimeoutSeconds()).orElse(120))
                 .build();
         SemanticLlmProviders.applyProviderDefaults(config);
         if (config.getModel() == null || config.getModel().trim().isEmpty()) {
@@ -188,6 +192,7 @@ public class AppSettingService {
                 .name(profile.getName())
                 .enabled(profile.isEnabled())
                 .provider(profile.getProvider())
+                .protocol(profile.getProtocol())
                 .model(profile.getModel())
                 .baseUrl(profile.getBaseUrl())
                 .timeoutSeconds(profile.getTimeoutSeconds())
@@ -199,6 +204,7 @@ public class AppSettingService {
         return SemanticLlmConfigResponse.builder()
                 .enabled(config.isEnabled())
                 .provider(config.getProvider())
+                .protocol(config.getProtocol())
                 .model(config.getModel())
                 .baseUrl(config.getBaseUrl())
                 .timeoutSeconds(config.getTimeoutSeconds())

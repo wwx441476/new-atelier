@@ -13,6 +13,9 @@ public class SemanticLlmProfileRequest {
 
     private String provider;
 
+    /** openai | anthropic */
+    private String protocol;
+
     /** 留空表示不修改已保存的 Key */
     private String apiKey;
 

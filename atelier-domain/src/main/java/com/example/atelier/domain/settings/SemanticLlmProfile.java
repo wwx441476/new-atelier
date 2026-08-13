@@ -22,6 +22,9 @@ public class SemanticLlmProfile {
 
     private String provider;
 
+    /** openai | anthropic；空则自动推断 */
+    private String protocol;
+
     private String apiKey;
 
     private String model;
@@ -34,6 +37,7 @@ public class SemanticLlmProfile {
         return SemanticLlmConfig.builder()
                 .enabled(enabled)
                 .provider(provider)
+                .protocol(protocol)
                 .apiKey(apiKey)
                 .model(model)
                 .baseUrl(baseUrl)
@@ -50,6 +54,7 @@ public class SemanticLlmProfile {
                 .name(name)
                 .enabled(config.isEnabled())
                 .provider(config.getProvider())
+                .protocol(config.getProtocol())
                 .apiKey(config.getApiKey())
                 .model(config.getModel())
                 .baseUrl(config.getBaseUrl())

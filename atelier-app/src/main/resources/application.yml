@@ -1,11 +1,19 @@
 server:
   port: 8090
   tomcat:
-    max-http-post-size: 20MB
+    # 需覆盖双文件上传 + multipart 开销（单文件 200MB × 2）
+    max-http-post-size: 450MB
+    connection-timeout: 600000
 
 spring:
   application:
     name: new-atelier
+  servlet:
+    multipart:
+      max-file-size: 200MB
+      max-request-size: 450MB
+      # 超过该阈值写磁盘，避免大文件占满堆内存
+      file-size-threshold: 1MB
   datasource:
     url: jdbc:h2:mem:atelier;DB_CLOSE_DELAY=-1;MODE=MySQL
     driver-class-name: org.h2.Driver
@@ -34,3 +42,10 @@ atelier:
       username: sa
       password:
       db-type: H2
+  document-compare:
+    max-file-bytes: 209715200
+    max-pages: 200
+    max-sheets: 50
+    job-ttl-millis: 3600000
+    max-concurrent-jobs: 2
+

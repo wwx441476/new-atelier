@@ -328,9 +328,12 @@ export interface SemanticValidateResult {
   sampleChecks?: SemanticSampleCheckResult[];
 }
 
+export type LlmProtocolId = 'openai' | 'anthropic';
+
 export interface SemanticLlmConfigResponse {
   enabled: boolean;
   provider?: string;
+  protocol?: LlmProtocolId | string;
   model?: string;
   baseUrl?: string;
   timeoutSeconds?: number;
@@ -342,6 +345,7 @@ export interface SemanticLlmProfileResponse {
   name: string;
   enabled: boolean;
   provider?: string;
+  protocol?: LlmProtocolId | string;
   model?: string;
   baseUrl?: string;
   timeoutSeconds?: number;
@@ -353,6 +357,7 @@ export interface SemanticLlmProfileRequest {
   name?: string;
   enabled?: boolean;
   provider?: string;
+  protocol?: LlmProtocolId | string;
   apiKey?: string;
   model?: string;
   baseUrl?: string;
@@ -372,6 +377,7 @@ export interface SemanticLlmProfilesSaveRequest {
 export interface SemanticLlmConfigRequest {
   enabled?: boolean;
   provider?: string;
+  protocol?: LlmProtocolId | string;
   apiKey?: string;
   model?: string;
   baseUrl?: string;

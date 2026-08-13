@@ -16,10 +16,13 @@ import { ApiOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { settingsApi } from '../api/settings';
 import type { SemanticLlmProfileRequest, SemanticLlmProfileResponse } from '../api/types';
 import {
+  LLM_PROTOCOL_OPTIONS,
   LLM_PROVIDER_PRESETS,
   isKimiCodingBaseUrl,
   resolveLlmProviderPreset,
   resolveModelForBaseUrl,
+  resolveProtocol,
+  type LlmProtocolId,
   type LlmProviderId,
 } from '../utils/llmProviderPresets';
 import { notifySemanticLlmUpdated } from '../utils/semanticLlmEvents';
@@ -32,6 +35,7 @@ interface SemanticLlmSettingsModalProps {
 
 interface ProfileFormValues extends SemanticLlmProfileRequest {
   provider?: LlmProviderId;
+  protocol?: LlmProtocolId;
 }
 
 const PROVIDER_OPTIONS = (Object.keys(LLM_PROVIDER_PRESETS) as LlmProviderId[]).map((id) => ({
@@ -49,15 +53,15 @@ function inferProvider(baseUrl?: string, provider?: string): LlmProviderId {
   return 'openai';
 }
 
-function createEmptyProfile(): SemanticLlmProfileRequest {
-  const preset = LLM_PROVIDER_PRESETS.openai;
+function createEmptyProfile(): ProfileFormValues {
   return {
     name: '新配置',
     enabled: true,
-    provider: 'openai',
-    model: preset.model,
-    baseUrl: preset.baseUrl,
-    timeoutSeconds: 30,
+    provider: 'custom',
+    protocol: 'anthropic',
+    model: '',
+    baseUrl: '',
+    timeoutSeconds: 180,
   };
 }
 
@@ -69,9 +73,10 @@ function toFormValues(profile: SemanticLlmProfileResponse): ProfileFormValues {
     name: profile.name,
     enabled: profile.enabled,
     provider,
+    protocol: resolveProtocol(profile.protocol, provider, profile.baseUrl),
     model: resolveModelForBaseUrl(profile.baseUrl, profile.model) || preset.model,
     baseUrl: profile.baseUrl || preset.baseUrl,
-    timeoutSeconds: profile.timeoutSeconds ?? 30,
+    timeoutSeconds: profile.timeoutSeconds ?? 180,
   };
 }
 
@@ -84,6 +89,7 @@ export default function SemanticLlmSettingsModal({ open, onClose, onSaved }: Sem
   const [selectedProfileId, setSelectedProfileId] = useState<string>();
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const selectedProvider = Form.useWatch('provider', form) as LlmProviderId | undefined;
+  const selectedProtocol = Form.useWatch('protocol', form) as LlmProtocolId | undefined;
   const baseUrl = Form.useWatch('baseUrl', form) as string | undefined;
 
   const selectedProfile = useMemo(
@@ -126,11 +132,13 @@ export default function SemanticLlmSettingsModal({ open, onClose, onSaved }: Sem
   const handleProviderChange = (provider: LlmProviderId) => {
     const preset = LLM_PROVIDER_PRESETS[provider];
     if (provider === 'custom') {
+      form.setFieldsValue({ protocol: preset.protocol });
       return;
     }
     form.setFieldsValue({
       model: preset.model,
       baseUrl: preset.baseUrl,
+      protocol: preset.protocol,
     });
   };
 
@@ -152,11 +160,13 @@ export default function SemanticLlmSettingsModal({ open, onClose, onSaved }: Sem
 
   const normalizeProfile = (values: ProfileFormValues): SemanticLlmProfileRequest => {
     const provider = inferProvider(values.baseUrl, values.provider);
+    const protocol = resolveProtocol(values.protocol, provider, values.baseUrl);
     return {
       id: normalizeProfileId(values.id),
       name: values.name?.trim() || '未命名',
       enabled: values.enabled,
       provider: provider === 'kimi-coding' ? 'kimi-coding' : values.provider,
+      protocol,
       apiKey: values.apiKey,
       model: resolveModelForBaseUrl(values.baseUrl, values.model) || values.model,
       baseUrl: values.baseUrl,
@@ -175,6 +185,7 @@ export default function SemanticLlmSettingsModal({ open, onClose, onSaved }: Sem
         name: profile.name,
         enabled: profile.enabled,
         provider: profile.provider,
+        protocol: profile.protocol,
         model: profile.model,
         baseUrl: profile.baseUrl,
         timeoutSeconds: profile.timeoutSeconds,
@@ -232,6 +243,7 @@ export default function SemanticLlmSettingsModal({ open, onClose, onSaved }: Sem
       name: draft.name || '新配置',
       enabled: true,
       provider: draft.provider,
+      protocol: draft.protocol,
       model: draft.model,
       baseUrl: draft.baseUrl,
       timeoutSeconds: draft.timeoutSeconds,
@@ -240,7 +252,7 @@ export default function SemanticLlmSettingsModal({ open, onClose, onSaved }: Sem
     setProfiles((prev) => [...prev, nextProfile]);
     setSelectedProfileId(tempId);
     setApiKeyConfigured(false);
-    form.setFieldsValue({ ...draft, id: tempId, provider: 'openai' });
+    form.setFieldsValue({ ...draft, id: tempId });
   };
 
   const handleDeleteProfile = () => {
@@ -282,7 +294,7 @@ export default function SemanticLlmSettingsModal({ open, onClose, onSaved }: Sem
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="可配置多套 LLM。工作区默认用于语义合规判定；Copilot 对话可在面板内随时切换。"
+        message="可配置多套 LLM。自定义网关请按 CC Switch 选择协议（Anthropic / OpenAI）。Read timed out 多为超时过短，OCR/长文建议 ≥180 秒；一般不必改流式。"
       />
       <div style={{ display: 'flex', gap: 16, minHeight: 360 }}>
         <div style={{ width: 220, flexShrink: 0 }}>
@@ -334,7 +346,12 @@ export default function SemanticLlmSettingsModal({ open, onClose, onSaved }: Sem
           <Form
             form={form}
             layout="vertical"
-            initialValues={{ provider: 'openai', timeoutSeconds: 30, enabled: true }}
+            initialValues={{
+              provider: 'custom',
+              protocol: 'anthropic',
+              timeoutSeconds: 180,
+              enabled: true,
+            }}
           >
             <Form.Item name="id" hidden>
               <Input />
@@ -344,7 +361,7 @@ export default function SemanticLlmSettingsModal({ open, onClose, onSaved }: Sem
               label="配置名称"
               rules={[{ required: true, message: '请输入配置名称' }]}
             >
-              <Input placeholder="如：通义千问、Kimi Coding" />
+              <Input placeholder="如：用友 AI Token、Kimi Coding" />
             </Form.Item>
             <Form.Item label="工作区默认">
               <Switch
@@ -365,6 +382,23 @@ export default function SemanticLlmSettingsModal({ open, onClose, onSaved }: Sem
             <Form.Item name="provider" label="服务商">
               <Select options={PROVIDER_OPTIONS} onChange={handleProviderChange} />
             </Form.Item>
+            <Form.Item
+              name="protocol"
+              label="协议类型"
+              extra={
+                LLM_PROTOCOL_OPTIONS.find((item) => item.value === selectedProtocol)?.hint ||
+                '与 CC Switch 顶部 Anthropic / OpenAI 切换对应'
+              }
+              rules={[{ required: true, message: '请选择协议' }]}
+            >
+              <Select
+                options={LLM_PROTOCOL_OPTIONS.map((item) => ({
+                  label: item.label,
+                  value: item.value,
+                }))}
+                disabled={selectedProvider !== 'custom' && selectedProvider !== undefined}
+              />
+            </Form.Item>
             <Form.Item name="apiKey" label="API Key">
               <Input.Password
                 placeholder={
@@ -375,13 +409,25 @@ export default function SemanticLlmSettingsModal({ open, onClose, onSaved }: Sem
               />
             </Form.Item>
             <Form.Item name="model" label="模型">
-              <Input placeholder={preset.model || '模型名称'} />
+              <Input placeholder={preset.model || '如 kimi-k2.7-code'} />
             </Form.Item>
-            <Form.Item name="baseUrl" label="API 地址">
-              <Input placeholder={preset.baseUrl || 'https://…'} onBlur={handleBaseUrlBlur} />
+            <Form.Item
+              name="baseUrl"
+              label="API 地址"
+              extra={
+                selectedProtocol === 'anthropic'
+                  ? '示例：https://aitoken.yonyougov.top（将请求 /v1/messages）'
+                  : '示例：https://aitoken.yonyougov.top/v1（将请求 /v1/chat/completions）'
+              }
+            >
+              <Input placeholder={preset.baseUrl || 'https://aitoken.yonyougov.top'} onBlur={handleBaseUrlBlur} />
             </Form.Item>
-            <Form.Item name="timeoutSeconds" label="超时（秒）">
-              <InputNumber min={5} max={120} style={{ width: '100%' }} />
+            <Form.Item
+              name="timeoutSeconds"
+              label="超时（秒）"
+              extra="Read timed out 时优先增大此项；OCR/长文档建议 180–300"
+            >
+              <InputNumber min={5} max={600} style={{ width: '100%' }} />
             </Form.Item>
           </Form>
           {selectedProfile && (

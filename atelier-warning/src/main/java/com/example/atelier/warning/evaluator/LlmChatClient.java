@@ -51,13 +51,15 @@ public class LlmChatClient {
         return LlmConcurrencyLimiter.withPermit(() -> {
             SemanticLlmConfig resolved = config;
             boolean hasImages = !images.isEmpty();
+            boolean anthropic = KimiEndpointSupport.shouldUseAnthropic(config);
             if (hasImages) {
-                resolved = buildVisionConfig(config);
-                log.info("LLM multimodal 请求: images={}, model={}, baseUrl={}",
-                        images.size(), resolved.getModel(), resolved.getBaseUrl());
+                resolved = buildVisionConfig(config, anthropic);
+                // 视觉改写后可能切到 OpenAI 官方 Coding 地址，需重新判定协议
+                anthropic = KimiEndpointSupport.shouldUseAnthropic(resolved);
+                log.info("LLM multimodal 请求: images={}, model={}, baseUrl={}, protocol={}",
+                        images.size(), resolved.getModel(), resolved.getBaseUrl(),
+                        anthropic ? "anthropic" : "openai");
             }
-            boolean anthropic = !hasImages
-                    && KimiEndpointSupport.useAnthropicProtocol(resolved.getBaseUrl(), resolved.getProvider());
             if (anthropic) {
                 return chatAnthropic(resolved, systemPrompt, userPrompt, images, resolvedMaxTokens);
             }
@@ -65,18 +67,32 @@ public class LlmChatClient {
         });
     }
 
-    private SemanticLlmConfig buildVisionConfig(SemanticLlmConfig config) {
+    private SemanticLlmConfig buildVisionConfig(SemanticLlmConfig config, boolean anthropicPreferred) {
         SemanticLlmConfig copy = SemanticLlmConfig.builder()
                 .enabled(config.isEnabled())
                 .provider(config.getProvider())
+                .protocol(config.getProtocol())
                 .apiKey(config.getApiKey())
                 .baseUrl(config.getBaseUrl())
                 .model(config.getModel())
                 .timeoutSeconds(config.getTimeoutSeconds())
                 .build();
         SemanticLlmProviders.applyProviderDefaults(copy);
-        if (KimiEndpointSupport.useAnthropicProtocol(copy.getBaseUrl(), copy.getProvider())) {
+        if (anthropicPreferred && !KimiEndpointSupport.shouldRewriteVisionToOfficialCoding(copy.getBaseUrl())) {
+            // 自定义 Anthropic 网关（如 aitoken + CC Switch）：多模态仍走 Messages，不改写 URL
+            copy.setProtocol(KimiEndpointSupport.PROTOCOL_ANTHROPIC);
+            copy.setModel(KimiEndpointSupport.resolveVisionModel(
+                    copy.getBaseUrl(), copy.getProvider(), copy.getModel()));
+            return copy;
+        }
+        // 官方 Kimi Coding：多模态改走其 OpenAI 兼容地址；其它 OpenAI 兼容网关仅规范化 /v1
+        if (KimiEndpointSupport.shouldRewriteVisionToOfficialCoding(copy.getBaseUrl())) {
             copy.setBaseUrl(KimiEndpointSupport.CODING_OPENAI_BASE_URL);
+            copy.setProtocol(KimiEndpointSupport.PROTOCOL_OPENAI);
+        } else {
+            copy.setBaseUrl(KimiEndpointSupport.normalizeOpenAiBaseUrl(
+                    copy.getBaseUrl(), copy.getProvider()));
+            copy.setProtocol(KimiEndpointSupport.PROTOCOL_OPENAI);
         }
         copy.setModel(KimiEndpointSupport.resolveVisionModel(
                 copy.getBaseUrl(), copy.getProvider(), copy.getModel()));
@@ -178,7 +194,8 @@ public class LlmChatClient {
                     image.put("type", "image_url");
                     ObjectNode imageUrl = image.putObject("image_url");
                     imageUrl.put("url", dataUrl);
-                    imageUrl.put("detail", "high");
+                    // low 降低网关/模型空响应概率与耗时，OCR 场景足够
+                    imageUrl.put("detail", "low");
                 }
                 content.addObject().put("type", "text").put("text", userPrompt);
             } else {
@@ -249,11 +266,51 @@ public class LlmChatClient {
             }
             throw new AtelierException("LLM 响应为空");
         }
-        JsonNode content = root.path("choices").path(0).path("message").path("content");
-        if (content.isMissingNode() || content.asText().trim().isEmpty()) {
-            throw new AtelierException("LLM 响应为空");
+        JsonNode choice0 = root.path("choices").path(0);
+        JsonNode content = choice0.path("message").path("content");
+        String text = extractOpenAiContentText(content);
+        if (text == null || text.trim().isEmpty()) {
+            // 部分网关把文本放在 text / reasoning_content，或 content 为多段数组
+            text = choice0.path("message").path("text").asText("");
+            if (text.trim().isEmpty()) {
+                text = choice0.path("text").asText("");
+            }
         }
-        return content.asText().trim();
+        if (text == null || text.trim().isEmpty()) {
+            String finish = choice0.path("finish_reason").asText("");
+            String refusal = choice0.path("message").path("refusal").asText("");
+            throw new AtelierException("LLM 响应为空"
+                    + (finish.isEmpty() ? "" : "（finish_reason=" + finish + "）")
+                    + (refusal.isEmpty() ? "" : " refusal=" + truncate(refusal, 120)));
+        }
+        return text.trim();
+    }
+
+    private static String extractOpenAiContentText(JsonNode content) {
+        if (content == null || content.isMissingNode() || content.isNull()) {
+            return "";
+        }
+        if (content.isTextual()) {
+            return content.asText("");
+        }
+        if (content.isArray()) {
+            StringBuilder sb = new StringBuilder();
+            for (JsonNode part : content) {
+                if (part == null) {
+                    continue;
+                }
+                if (part.isTextual()) {
+                    sb.append(part.asText(""));
+                } else if ("text".equals(part.path("type").asText()) || part.has("text")) {
+                    sb.append(part.path("text").asText(""));
+                }
+            }
+            return sb.toString();
+        }
+        if (content.isObject() && content.has("text")) {
+            return content.path("text").asText("");
+        }
+        return content.asText("");
     }
 
     private static int timeoutSeconds(SemanticLlmConfig config) {

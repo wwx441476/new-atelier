@@ -36,6 +36,10 @@
             <artifactId>atelier-warning</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.example.atelier</groupId>
+            <artifactId>atelier-document</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>

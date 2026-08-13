@@ -139,6 +139,7 @@ curl -X POST http://localhost:8090/api/v2/metrics/query \
 | `atelier-dimension` | 维度管理：LIST / TREE / TIME_DIM 类型 |
 | `atelier-metrics` | 指标编译器 `MetricQueryCompiler`（声明式定义 → SQL） |
 | `atelier-warning` | 预警规则 CRUD + QLExpress 表达式评估桩 |
+| `atelier-document` | 文档对比：多格式抽取、三级 Diff、LLM 解读 |
 | `atelier-query` | 查询编排：编译 + 执行 SPI（`MetricQueryService`） |
 | `atelier-api` | REST 控制器，统一前缀 `/api/v2/` |
 | `atelier-app` | Spring Boot 启动、`WebCorsConfig`、`schema.sql` / `data.sql` |
@@ -151,8 +152,9 @@ new-atelier/
 ├── atelier-dimension/       # 维度服务
 ├── atelier-metrics/         # MetricQueryCompiler
 ├── atelier-warning/         # 预警服务
+├── atelier-document/        # 文档对比
 ├── atelier-query/           # 查询编排
-├── atelier-api/             # REST 控制器（6 个 Controller）
+├── atelier-api/             # REST 控制器
 └── atelier-app/             # Spring Boot 启动
 ```
 
@@ -167,6 +169,24 @@ new-atelier/
 | 维度 | `DimensionController` | `/api/v2/dimensions` |
 | 指标 | `MetricDefinitionController` + `MetricController` | `/api/v2/metrics` |
 | 预警 | `WarningRuleController` | `/api/v2/warning/rules` |
+| 文档对比 | `DocumentCompareController` | `/api/v2/document-compare` |
+
+### 文档对比
+
+上传文件 A / B，异步产出**文字 / 段落 / 结构**三级差异，并可选大模型解读。
+
+| 项 | 说明 |
+|----|------|
+| 格式 | txt/md/json/代码、docx/xlsx/pptx、PDF、图片（png/jpg/gif/webp） |
+| API | `POST /api/v2/document-compare/jobs`（multipart `fileA`/`fileB` + `options`）→ `GET .../jobs/{id}` |
+| 限制 | 单文件 ≤ 200MB；请求体 ≤ 450MB；PDF/PPT 最多 200 页、Excel 最多 50 sheet；任务 TTL 约 1 小时 |
+| 存储 | 临时目录（默认 `java.io.tmpdir/atelier-doc-compare/`），**不做永久文档库** |
+| OCR | 图片与疑似扫描 PDF 走已配置的多模态 LLM；未配置时跳过/失败并提示 |
+| AI 解读 | 基于结构化 diff 摘要，失败时三级 diff 仍可用；**非合规审计唯一依据** |
+| 已知不足 | 复杂版式/双栏 PDF/合并单元格可能误报；OCR 有误差；`moved` 依赖相似度阈值 |
+| 安全 | 当前实例无登录隔离，任务对实例内可见；上线前需鉴权与租户隔离 |
+
+前端入口：管理台菜单 **文档对比**（`/document-compare`）。
 
 ## 前端管理控制台（atelier-web）
 
@@ -282,6 +302,7 @@ proxy: {
 | 测试连接 | 数据源 | 调用 `POST /api/v2/datasources/test`，保存前可验证 JDBC URL |
 | SQL 预览 | 指标 | 调用 `GET /api/v2/metrics/{code}/sql`，弹窗展示编译 SQL 与列名 |
 | 查询预览 | 指标 | 调用 `POST /api/v2/metrics/query`，调试 filters 与返回数据 |
+| 双文件对比 | 文档对比 | 调用 `POST /api/v2/document-compare/jobs`，轮询任务结果 |
 
 ---
 
@@ -292,7 +313,7 @@ proxy: {
 | 指标标识 | UUID / indexPk | **code**（如 `revenue`） |
 | 存储内容 | 预生成 SQL + relation 混用语义 | **声明式定义**，查询时编译 |
 | 过滤条件 | 保存时写入 WHERE | **查询时传入** `filters` |
-| 模块 | 单模块 God Class 3300 行 | **9 模块** 分层 |
+| 模块 | 单模块 God Class 3300 行 | **多模块** 分层 |
 | 基础设施 | bd-platform 8.52-SNAPSHOT | **atelier-infra** 自研 |
 | API 版本 | `/api/v1/*` | **`/api/v2/*`** |
 
@@ -306,8 +327,9 @@ new-atelier/
 ├── atelier-dimension/       # 维度管理（LIST/TREE/TIME_DIM）
 ├── atelier-metrics/         # 指标编译器（MetricQueryCompiler）
 ├── atelier-warning/         # 预警规则 + QLExpress 表达式桩
+├── atelier-document/        # 文档对比（抽取 / 三级 Diff / LLM 解读）
 ├── atelier-query/           # 查询编排（编译 + 执行 SPI）
-├── atelier-api/             # REST 控制器（5 大管理域）
+├── atelier-api/             # REST 控制器
 ├── atelier-app/             # Spring Boot 启动 + schema.sql / data.sql
 ├── atelier-web/             # React 管理控制台（Vite）
 └── scripts/                 # 开发脚本（start-dev.sh / stop-dev.sh / smoke-test.sh）
@@ -550,6 +572,7 @@ GitHub 已禁用密码推送，请使用以下方式之一：
 | QLExpress 表达式评估 | ⚡ 桩实现 |
 | 预警任务调度/批次/结果 | ⏸ 未实现 |
 | 目录树管理 | ⏸ 扁平 catalogCode |
+| 文档对比（文字/段落/结构 + LLM） | ✅ 完整（临时任务，非文档库） |
 
 ---
 

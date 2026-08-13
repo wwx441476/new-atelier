@@ -19,6 +19,7 @@
         <module>atelier-metadata</module>
         <module>atelier-dimension</module>
         <module>atelier-warning</module>
+        <module>atelier-document</module>
         <module>atelier-api</module>
         <module>atelier-app</module>
     </modules>
@@ -73,6 +74,11 @@
             <dependency>
                 <groupId>com.example.atelier</groupId>
                 <artifactId>atelier-warning</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.example.atelier</groupId>
+                <artifactId>atelier-document</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

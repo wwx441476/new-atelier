@@ -18,6 +18,12 @@ public class SemanticLlmConfig {
 
     private String provider;
 
+    /**
+     * 调用协议：openai | anthropic。
+     * 为空时按 provider / baseUrl 自动推断（如 kimi-coding → anthropic）。
+     */
+    private String protocol;
+
     private String apiKey;
 
     private String model;

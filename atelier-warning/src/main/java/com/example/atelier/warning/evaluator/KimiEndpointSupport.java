@@ -1,12 +1,18 @@
 package com.example.atelier.warning.evaluator;
 
+import com.example.atelier.domain.settings.SemanticLlmConfig;
+
 /**
  * Kimi 端点 URL 与模型解析。
  * <p>
  * Kimi Coding Plan（api.kimi.com/coding）与 cc switch 一致，走 Anthropic Messages API；
  * Kimi 开放平台（api.moonshot.cn）走 OpenAI Chat Completions API。
+ * 自定义网关可通过 {@link SemanticLlmConfig#getProtocol()} 显式指定 openai / anthropic。
  */
 public final class KimiEndpointSupport {
+
+    public static final String PROTOCOL_OPENAI = "openai";
+    public static final String PROTOCOL_ANTHROPIC = "anthropic";
 
     /** cc switch / Claude Code 同款 Coding 根地址 */
     public static final String CODING_ANTHROPIC_BASE_URL = "https://api.kimi.com/coding";
@@ -32,6 +38,31 @@ public final class KimiEndpointSupport {
     }
 
     /**
+     * 是否走 Anthropic Messages。
+     * 显式 protocol 优先；否则按 provider / baseUrl 推断。
+     */
+    public static boolean shouldUseAnthropic(SemanticLlmConfig config) {
+        if (config == null) {
+            return false;
+        }
+        String protocol = config.getProtocol();
+        if (protocol != null && !protocol.trim().isEmpty()) {
+            return PROTOCOL_ANTHROPIC.equalsIgnoreCase(protocol.trim());
+        }
+        return useAnthropicProtocol(config.getBaseUrl(), config.getProvider());
+    }
+
+    public static String normalizeProtocol(String protocol, String baseUrl, String provider) {
+        if (protocol != null && !protocol.trim().isEmpty()) {
+            String p = protocol.trim().toLowerCase();
+            if (PROTOCOL_ANTHROPIC.equals(p) || PROTOCOL_OPENAI.equals(p)) {
+                return p;
+            }
+        }
+        return useAnthropicProtocol(baseUrl, provider) ? PROTOCOL_ANTHROPIC : PROTOCOL_OPENAI;
+    }
+
+    /**
      * OpenAI 兼容 Base URL，确保以 /v1 结尾。
      */
     public static String normalizeOpenAiBaseUrl(String baseUrl, String provider) {
@@ -45,8 +76,19 @@ public final class KimiEndpointSupport {
         }
         if (url.endsWith("/coding")) {
             url = url + "/v1";
+        } else if (!url.endsWith("/v1") && !url.contains("/v1/")) {
+            // 自定义网关常只填域名，补全 /v1 以命中 /v1/chat/completions
+            url = url + "/v1";
         }
         return url;
+    }
+
+    /**
+     * 多模态是否应改写到官方 Kimi Coding OpenAI 地址。
+     * 仅当 baseUrl 本身就是 kimi.com/coding 时改写；自定义代理（如 aitoken）必须保留原地址。
+     */
+    public static boolean shouldRewriteVisionToOfficialCoding(String baseUrl) {
+        return isKimiCodingEndpoint(baseUrl);
     }
 
     /**

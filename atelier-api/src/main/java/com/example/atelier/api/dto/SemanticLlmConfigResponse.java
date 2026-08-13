@@ -15,6 +15,8 @@ public class SemanticLlmConfigResponse {
 
     private String provider;
 
+    private String protocol;
+
     private String model;
 
     private String baseUrl;
