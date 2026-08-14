@@ -162,6 +162,101 @@
   background: rgba(255, 229, 100, 0.28);
 }
 
+.flow-block-annotated {
+  outline: 1px solid #91caff;
+  outline-offset: 2px;
+  background: rgba(230, 244, 255, 0.45);
+}
+
+.flow-block-with-anno {
+  margin-bottom: 8px;
+}
+
+.flow-anno-list {
+  margin: 4px 0 12px;
+  padding: 6px 8px;
+  border-left: 3px solid #1677ff;
+  background: #f5f9ff;
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(0, 0, 0, 0.75);
+}
+
+.flow-anno-side {
+  margin: 0 0 16px;
+  padding: 8px 10px;
+  border: 1px dashed #ffa39e;
+  border-radius: 6px;
+  background: #fff2f0;
+}
+
+.flow-anno-side .flow-anno-list {
+  margin: 0;
+  border-left-color: #ff4d4f;
+  background: transparent;
+  padding: 0;
+}
+
+.flow-anno-side-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.flow-anno {
+  margin-bottom: 4px;
+}
+
+.flow-anno:last-child {
+  margin-bottom: 0;
+}
+
+.flow-anno-body {
+  vertical-align: middle;
+}
+
+.flow-anno-self {
+  color: #cf1322;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.flow-anno-peer {
+  color: #389e0d;
+}
+
+/** 修改批注中「对方文档」文案：A/B 两侧统一样式 */
+.flow-anno-other {
+  color: #d46b08;
+  font-weight: 500;
+}
+
+.flow-anno-muted {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.flow-anno-arrow {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.flow-anno-removed {
+  border-left-color: #ff4d4f;
+}
+
+.flow-anno-added {
+  border-left-color: #52c41a;
+}
+
+.flow-anno-modified {
+  border-left-color: #fa8c16;
+}
+
+.flow-anno-moved {
+  border-left-color: #1677ff;
+}
+
 @keyframes flow-block-flash {
   0% {
     background: rgba(255, 229, 100, 0.55);

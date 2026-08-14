@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Empty, Table, Typography } from 'antd';
+import { Empty, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type {
   PreviewBlock,
@@ -7,6 +7,7 @@ import type {
   PreviewInlineMark,
   PreviewRun,
 } from '../../api/documentPreview';
+import type { AnnotationsByBlockId, DiffAnnotation } from './buildDiffAnnotations';
 import './FlowStructureReader.css';
 
 function headingTag(level?: number): 'h1' | 'h2' | 'h3' {
@@ -83,11 +84,14 @@ function renderRuns(runs?: PreviewRun[], fallbackText?: string): ReactNode {
   return renderTextWithBreaks(fallbackText || '', 'fb');
 }
 
-function blockWrapperProps(block: PreviewBlock, highlighted?: boolean) {
+function blockWrapperProps(block: PreviewBlock, highlighted?: boolean, annotated?: boolean) {
   const id = block.id;
   const classes = ['flow-block'];
   if (highlighted) {
     classes.push('flow-block-highlight');
+  }
+  if (annotated) {
+    classes.push('flow-block-annotated');
   }
   return {
     id: id ? `block-${id}` : undefined,
@@ -96,109 +100,188 @@ function blockWrapperProps(block: PreviewBlock, highlighted?: boolean) {
   } as const;
 }
 
-function BlockView({ block, highlighted }: { block: PreviewBlock; highlighted?: boolean }) {
-  const type: PreviewBlockType = block.type;
-  const wrap = blockWrapperProps(block, highlighted);
+const ANNO_COLOR: Record<string, string> = {
+  ADDED: 'green',
+  REMOVED: 'red',
+  MODIFIED: 'orange',
+  MOVED: 'blue',
+};
 
+function BlockAnnotations({ notes }: { notes: DiffAnnotation[] }) {
+  if (!notes.length) {
+    return null;
+  }
+  return (
+    <div className="flow-anno-list">
+      {notes.map((n) => (
+        <div key={n.id} className={`flow-anno flow-anno-${(n.type || 'MODIFIED').toLowerCase()}`}>
+          <Tag color={ANNO_COLOR[n.type] || 'default'} style={{ marginInlineEnd: 6 }}>
+            {n.label}
+          </Tag>
+          <span className="flow-anno-body">
+            {n.perspective === 'A' && (n.type === 'MODIFIED' || n.type === 'MOVED') ? (
+              <>
+                <span className="flow-anno-other">{n.newText || '—'}</span>
+                <span className="flow-anno-arrow"> → </span>
+                <span className="flow-anno-muted">本文</span>
+              </>
+            ) : n.perspective === 'B' && (n.type === 'MODIFIED' || n.type === 'MOVED') ? (
+              <>
+                <span className="flow-anno-other">{n.oldText || '—'}</span>
+                <span className="flow-anno-arrow"> → </span>
+                <span className="flow-anno-muted">本文</span>
+              </>
+            ) : n.type === 'REMOVED' ? (
+              <span className="flow-anno-self">
+                {n.oldText || (n.perspective === 'B' ? '（相对A：已删除）' : '（在B中已删除）')}
+              </span>
+            ) : n.type === 'ADDED' ? (
+              <span className="flow-anno-peer">
+                {n.newText || (n.perspective === 'A' ? '（相对B：新增）' : '（相对A为新增）')}
+              </span>
+            ) : (
+              <span>{n.newText || n.oldText || n.label}</span>
+            )}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function withAnnotations(
+  node: ReactNode,
+  block: PreviewBlock,
+  annotationsByBlockId?: AnnotationsByBlockId,
+): ReactNode {
+  if (!block.id || !annotationsByBlockId) {
+    return node;
+  }
+  const notes = annotationsByBlockId[block.id];
+  if (!notes?.length) {
+    return node;
+  }
+  return (
+    <div className="flow-block-with-anno">
+      {node}
+      <BlockAnnotations notes={notes} />
+    </div>
+  );
+}
+
+function BlockView({
+  block,
+  highlighted,
+  annotationsByBlockId,
+}: {
+  block: PreviewBlock;
+  highlighted?: boolean;
+  annotationsByBlockId?: AnnotationsByBlockId;
+}) {
+  const type: PreviewBlockType = block.type;
+  const annotated = !!(block.id && annotationsByBlockId?.[block.id]?.length);
+  const wrap = blockWrapperProps(block, highlighted, annotated);
+
+  let body: ReactNode;
   if (type === 'SECTION') {
-    return (
+    body = (
       <div {...wrap} className={`${wrap.className} flow-section`}>
         <Typography.Title level={4} className="flow-section-title">
           {block.text || '分区'}
         </Typography.Title>
       </div>
     );
-  }
-
-  if (type === 'HEADING') {
-    const Tag = headingTag(block.level);
-    return (
-      <Tag {...wrap} className={`${wrap.className} flow-heading flow-heading-${Tag}`}>
+  } else if (type === 'HEADING') {
+    const TagEl = headingTag(block.level);
+    body = (
+      <TagEl {...wrap} className={`${wrap.className} flow-heading flow-heading-${TagEl}`}>
         {renderRuns(block.runs, block.text)}
-      </Tag>
+      </TagEl>
     );
-  }
-
-  if (type === 'LIST_ITEM') {
-    return (
+  } else if (type === 'LIST_ITEM') {
+    body = (
       <li {...wrap} className={`${wrap.className} flow-list-item`}>
         {renderRuns(block.runs, block.text)}
       </li>
     );
-  }
-
-  if (type === 'CODE') {
-    return (
+  } else if (type === 'CODE') {
+    body = (
       <pre {...wrap} className={`${wrap.className} flow-code`}>
         {block.text}
       </pre>
     );
-  }
-
-  if (type === 'IMAGE') {
+  } else if (type === 'IMAGE') {
     const src = block.imageDataUrl;
     if (!src) {
-      return (
+      body = (
         <Typography.Paragraph type="secondary" {...wrap} className={`${wrap.className} flow-para`}>
           {block.text || '（图片缺失）'}
         </Typography.Paragraph>
       );
+    } else {
+      body = (
+        <figure {...wrap} className={`${wrap.className} flow-image-wrap`}>
+          <img className="flow-image" src={src} alt={block.text || '文档图片'} loading="lazy" />
+          {block.text && block.text !== '[图片]' ? (
+            <Typography.Paragraph className="flow-image-caption">{block.text}</Typography.Paragraph>
+          ) : null}
+        </figure>
+      );
     }
-    return (
-      <figure {...wrap} className={`${wrap.className} flow-image-wrap`}>
-        <img className="flow-image" src={src} alt={block.text || '文档图片'} loading="lazy" />
-        {block.text && block.text !== '[图片]' ? (
-          <Typography.Paragraph className="flow-image-caption">{block.text}</Typography.Paragraph>
-        ) : null}
-      </figure>
-    );
-  }
-
-  if (type === 'IMAGE_CAPTION') {
-    return (
+  } else if (type === 'IMAGE_CAPTION') {
+    body = (
       <Typography.Paragraph type="secondary" {...wrap} className={`${wrap.className} flow-caption`}>
+        {renderRuns(block.runs, block.text)}
+      </Typography.Paragraph>
+    );
+  } else if (type === 'TABLE' || type === 'SHEET') {
+    const rows = block.table?.rows || [];
+    if (!rows.length) {
+      body = (
+        <Typography.Paragraph type="secondary" {...wrap} className={`${wrap.className} flow-para`}>
+          {block.text || '（空表）'}
+        </Typography.Paragraph>
+      );
+    } else {
+      const { columns, data } = tableParts(rows);
+      body = (
+        <div {...wrap} className={`${wrap.className} flow-table-wrap`}>
+          <Table
+            size="small"
+            bordered
+            pagination={false}
+            scroll={{ x: true }}
+            columns={columns}
+            dataSource={data}
+          />
+        </div>
+      );
+    }
+  } else {
+    body = (
+      <Typography.Paragraph {...wrap} className={`${wrap.className} flow-para`}>
         {renderRuns(block.runs, block.text)}
       </Typography.Paragraph>
     );
   }
 
-  if (type === 'TABLE' || type === 'SHEET') {
-    const rows = block.table?.rows || [];
-    if (!rows.length) {
-      return (
-        <Typography.Paragraph type="secondary" {...wrap} className={`${wrap.className} flow-para`}>
-          {block.text || '（空表）'}
-        </Typography.Paragraph>
-      );
-    }
-    const { columns, data } = tableParts(rows);
-    return (
-      <div {...wrap} className={`${wrap.className} flow-table-wrap`}>
-        <Table
-          size="small"
-          bordered
-          pagination={false}
-          scroll={{ x: true }}
-          columns={columns}
-          dataSource={data}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <Typography.Paragraph {...wrap} className={`${wrap.className} flow-para`}>
-      {renderRuns(block.runs, block.text)}
-    </Typography.Paragraph>
-  );
+  return <>{withAnnotations(body, block, annotationsByBlockId)}</>;
 }
 
 export default function FlowStructureReader({
   blocks,
   highlightBlockIds,
+  annotationsByBlockId,
+  sideNotes,
+  sideNotesTitle,
 }: {
   blocks?: PreviewBlock[];
   highlightBlockIds?: string[];
+  /** 块级差异批注（页面渲染，不写回原文件） */
+  annotationsByBlockId?: AnnotationsByBlockId;
+  /** 无正文落点的相对批注（如 B 侧「相对A·删除」） */
+  sideNotes?: DiffAnnotation[];
+  sideNotesTitle?: string;
 }) {
   if (!blocks || blocks.length === 0) {
     return <Empty description="无可展示的结构化内容" />;
@@ -217,6 +300,7 @@ export default function FlowStructureReader({
             key={b.id || `li-${i}`}
             block={b}
             highlighted={!!b.id && highlight.has(b.id)}
+            annotationsByBlockId={annotationsByBlockId}
           />
         ))}
       </ul>,
@@ -235,12 +319,29 @@ export default function FlowStructureReader({
         key={block.id || `b-${index}`}
         block={block}
         highlighted={!!block.id && highlight.has(block.id)}
+        annotationsByBlockId={annotationsByBlockId}
       />,
     );
   });
   flushList();
 
-  return <article className="flow-reader">{nodes}</article>;
+  return (
+    <article className="flow-reader">
+      {sideNotes && sideNotes.length > 0 ? (
+        <div className="flow-anno-side">
+          <div className="flow-anno-side-title">
+            {sideNotesTitle || '相对批注（正文无对应块）'}
+            <Typography.Text type="secondary" style={{ marginLeft: 8, fontWeight: 400 }}>
+              {sideNotes.length} 条
+            </Typography.Text>
+          </div>
+          <BlockAnnotations notes={sideNotes} />
+        </div>
+      ) : null}
+      {nodes}
+    </article>
+  );
 }
 
 export { scrollToPreviewBlock } from './scrollToPreviewBlock';
+export type { DiffAnnotation, AnnotationsByBlockId } from './buildDiffAnnotations';

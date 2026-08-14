@@ -13,6 +13,19 @@ public final class PreviewTextNormalize {
         return text.replaceAll("\\s+", "");
     }
 
+    /**
+     * 对比定位用归一化：空白与常见表格分隔符（| / ｜）一并去掉，
+     * 使段落 Diff 的「a | b」能对齐预览表「a\\tb」。
+     */
+    public static String normalizeForLocate(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        return text.replace('|', ' ')
+                .replace('｜', ' ')
+                .replaceAll("\\s+", "");
+    }
+
     public static String joinRuns(java.util.List<PreviewRun> runs) {
         if (runs == null || runs.isEmpty()) {
             return "";

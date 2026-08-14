@@ -156,19 +156,19 @@ public final class PreviewLocateIndex {
         return new ArrayList<>(ids);
     }
 
-    /** 用片段文本匹配块（归一化包含 / 相等） */
+    /** 用片段文本匹配块（归一化包含 / 相等；兼容「a | b」与表单元格 Tab 拼接） */
     public List<String> blockIdsForSnippet(String snippet) {
         if (snippet == null || snippet.trim().isEmpty() || spans.isEmpty()) {
             return Collections.emptyList();
         }
-        String norm = PreviewTextNormalize.normalize(snippet);
+        String norm = PreviewTextNormalize.normalizeForLocate(snippet);
         if (norm.isEmpty()) {
             return Collections.emptyList();
         }
         List<String> exact = new ArrayList<>();
         List<String> contains = new ArrayList<>();
         for (BlockSpan span : spans) {
-            String sn = PreviewTextNormalize.normalize(span.plainText);
+            String sn = PreviewTextNormalize.normalizeForLocate(span.plainText);
             if (sn.equals(norm)) {
                 exact.add(span.blockId);
             } else if (sn.contains(norm) || (norm.contains(sn) && sn.length() >= 8)) {
@@ -181,10 +181,34 @@ public final class PreviewLocateIndex {
         if (!contains.isEmpty()) {
             return contains.size() > 3 ? contains.subList(0, 3) : contains;
         }
+        // 多行片段：逐行匹配（表格行 / 代码块）
+        String[] parts = snippet.replace("\r\n", "\n").replace('\r', '\n').split("\n");
+        if (parts.length > 1) {
+            for (String part : parts) {
+                String pn = PreviewTextNormalize.normalizeForLocate(part);
+                if (pn.length() < 4) {
+                    continue;
+                }
+                for (BlockSpan span : spans) {
+                    if (PreviewTextNormalize.normalizeForLocate(span.plainText).contains(pn)) {
+                        return Collections.singletonList(span.blockId);
+                    }
+                }
+            }
+        }
         if (norm.length() > 24) {
             String head = norm.substring(0, 24);
             for (BlockSpan span : spans) {
-                if (PreviewTextNormalize.normalize(span.plainText).contains(head)) {
+                if (PreviewTextNormalize.normalizeForLocate(span.plainText).contains(head)) {
+                    return Collections.singletonList(span.blockId);
+                }
+            }
+        }
+        // 短片段：取较长连续子串再试（避免整行因细微差异全失败）
+        if (norm.length() >= 12) {
+            String mid = norm.substring(0, Math.min(norm.length(), 32));
+            for (BlockSpan span : spans) {
+                if (PreviewTextNormalize.normalizeForLocate(span.plainText).contains(mid)) {
                     return Collections.singletonList(span.blockId);
                 }
             }

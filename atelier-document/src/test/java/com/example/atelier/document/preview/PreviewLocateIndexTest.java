@@ -1,5 +1,6 @@
 package com.example.atelier.document.preview;
 
+import com.example.atelier.document.model.TableData;
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -38,5 +39,23 @@ public class PreviewLocateIndexTest {
         List<String> ids = index.blockIdsForSnippet("Quarterly Report");
         assertEquals(Collections.singletonList("x"), ids);
         assertTrue(index.blockIdsForSnippet("missing").isEmpty());
+    }
+
+    @Test
+    public void findsTableRowJoinedByPipeAgainstTabFlattenedPreview() {
+        PreviewDocument doc = PreviewDocument.builder()
+                .blocks(Collections.singletonList(
+                        PreviewBlock.builder().id("tbl")
+                                .type(PreviewBlockType.TABLE)
+                                .table(TableData.builder()
+                                        .rows(Arrays.asList(
+                                                Arrays.asList("指标", "传统方式"),
+                                                Arrays.asList("数据库", "手工核对")))
+                                        .build())
+                                .build()))
+                .build();
+        PreviewLocateIndex index = PreviewLocateIndex.from(doc);
+        List<String> ids = index.blockIdsForSnippet("数据库 | 手工核对");
+        assertEquals(Collections.singletonList("tbl"), ids);
     }
 }
