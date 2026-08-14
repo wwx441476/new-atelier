@@ -183,10 +183,10 @@ new-atelier/
 | 形态 | `layoutMode=flow`；PPT/Excel 以 `SECTION` 分区标题分隔 |
 | PDF/DOCX/MD + LLM 样式 | 默认开启：按页/分片 **SSE 流式** 调用语义 LLM；协议严格按档案 `protocol`（`custom` 且未填时默认 `anthropic` → `/v1/messages`）；LLM **只返回段落索引标注**；失败则规则启发式；读超时默认 180s |
 | PDF/DOCX/MD 保真闭环 | 默认开启：抽取后确定性去重 → LLM 样式 → 对比原文（PDF 另附首页图），输出 `DROP`/`MERGE`/`SET` 修补并最多迭代 10 轮（进度 `refining`） |
-| 锚点 | 每块含稳定 `id`（`p{page}-{hash}-{occurrence}`）与 `anchor`（page/textHash/offset），DOM 带 `data-block-id`，为后续按内容定位 / 批注预留 |
+| 锚点 | 每块含稳定 `id`（`p{page}-{hash}-{occurrence}`）与 `anchor`（page/textHash/offset），DOM 带 `data-block-id`，供 Diff 定位与页面批注 |
 | 限制 | 单文件 ≤ 200MB；LLM 样式最多约 30 页；任务 TTL 约 1 小时 |
 | 存储 | 复用对比临时目录模式，**不做永久文档库** |
-| 已知不足 | 非原版式；双栏/乱序 PDF 可能降级；扫描件依赖 OCR；闭环是结构级近似而非像素级一致；Word 内嵌 EMF/WMF/SmartArt 可能无法浏览器直显；批注 UI 尚未实现 |
+| 已知不足 | 非原版式；双栏/乱序 PDF 可能降级；扫描件依赖 OCR；闭环是结构级近似而非像素级一致；Word 内嵌 EMF/WMF/SmartArt 可能无法浏览器直显；**原生文件批注写回未做**（对比页支持页面一键批注） |
 
 前端入口：管理台菜单 **文档预览**（`/document-preview`）。
 
@@ -200,14 +200,15 @@ new-atelier/
 | API | `POST /api/v2/document-compare/jobs`（multipart `fileA`/`fileB` + `options` JSON）→ `GET .../jobs/{id}` |
 | options | `ignoreWhitespace`、`excelKeyColumn`、`enableLlm`（解读）、`enableLlmStyle`/`enableLlmRefine`（对比侧预览，**默认 true**）、`llmProfileId` |
 | 预览联动 | 结果含 `previewA`/`previewB`；文字 Diff 基于预览拼接明文；hunk/段落/结构带 `blockIdsA`/`blockIdsB`；进度含 `previewing-a` / `previewing-b` |
+| 页面批注 | 一键批注：相对视角渲染（A 相对 B / B 相对 A）；目标可选 A、B、A+B；**不写回文件**。设计说明见 `docs/superpowers/specs/2026-08-14-document-compare-layout-annotations.md` |
 | 限制 | 单文件 ≤ 200MB；请求体 ≤ 450MB；PDF/PPT 最多 200 页、Excel 最多 50 sheet；任务 TTL 约 1 小时 |
 | 存储 | 临时目录（默认 `java.io.tmpdir/atelier-doc-compare/`），**不做永久文档库** |
 | OCR | 图片与疑似扫描 PDF 走已配置的多模态 LLM；未配置时跳过/失败并提示 |
 | AI 解读 | 基于结构化 diff 摘要，失败时三级 diff 仍可用；**非合规审计唯一依据** |
-| 已知不足 | 复杂版式/双栏 PDF/合并单元格可能误报；OCR 有误差；`moved` 依赖相似度阈值；双端 LLM 预览耗时与结果体积较大；单元格级定位未做 |
+| 已知不足 | 复杂版式/双栏 PDF/合并单元格可能误报；OCR 有误差；`moved` 依赖相似度阈值；双端 LLM 预览耗时与结果体积较大；单元格级定位未做；批注仅页面渲染 |
 | 安全 | 当前实例无登录隔离，任务对实例内可见；上线前需鉴权与租户隔离 |
 
-前端入口：管理台菜单 **文档对比**（`/document-compare`）：对比成功后**原上传区变为左右 A/B 结构预览**（与文档预览相同 IR）；其下为 Diff Tab，点击差异行在预览中滚动高亮。
+前端入口：管理台菜单 **文档对比**（`/document-compare`）：对比成功后为三列布局 **预览 A | 预览 B | 差异**；点击差异行在预览中滚动高亮；可一键批注。
 
 ## 前端管理控制台（atelier-web）
 
@@ -594,8 +595,8 @@ GitHub 已禁用密码推送，请使用以下方式之一：
 | QLExpress 表达式评估 | ⚡ 桩实现 |
 | 预警任务调度/批次/结果 | ⏸ 未实现 |
 | 目录树管理 | ⏸ 扁平 catalogCode |
-| 文档预览（流式 + PDF LLM 样式 + 保真闭环） | ✅ 完整（规范皮肤；结构修补迭代；锚点预留；批注 UI 未做） |
-| 文档对比（文字/段落/结构 + LLM） | ✅ 完整（临时任务，非文档库） |
+| 文档预览（流式 + PDF LLM 样式 + 保真闭环） | ✅ 完整（规范皮肤；结构修补迭代；锚点；对比页页面批注已做，预览页批注 UI 未做） |
+| 文档对比（文字/段落/结构 + LLM） | ✅ 完整（三列布局；页面一键批注；临时任务，非文档库） |
 
 ---
 
